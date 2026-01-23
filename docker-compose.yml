@@ -1,6 +1,6 @@
 services:
   db:
-    image: 'mysql:8.0'
+    image: mysql:8.0
     restart: unless-stopped
     environment:
       - MYSQL_DATABASE=traccar
@@ -8,22 +8,22 @@ services:
       - MYSQL_PASSWORD=${MYSQL_PASSWORD}
       - MYSQL_ROOT_PASSWORD=${MYSQL_ROOT_PASSWORD}
     volumes:
-      - 'db_data:/var/lib/mysql'
+      - db_data:/var/lib/mysql
 
   traccar:
-    image: 'traccar/traccar:latest'
+    image: traccar/traccar:latest
     restart: unless-stopped
     depends_on:
       - db
     ports:
-      - '8082:8082'
-      - '5023:5023'
+      - "8082:8082"   # Web (interface)
+      - "5023:5023"   # Dispositivos
     volumes:
-      - 'traccar_logs:/opt/traccar/logs'
-      - 'traccar_data:/opt/traccar/data'
-      - './traccar.xml:/opt/traccar/conf/traccar.xml:ro'
+      - traccar_logs:/opt/traccar/logs
+      - traccar_data:/opt/traccar/data
+      - ./traccar.xml:/opt/traccar/conf/traccar.xml:ro
 
 volumes:
-  db_data: null
-  traccar_logs: null
-  traccar_data: null
+  db_data:
+  traccar_logs:
+  traccar_data:
