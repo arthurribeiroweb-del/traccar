@@ -491,6 +491,27 @@ public final class Keys {
             "database.password",
             List.of(KeyType.CONFIG));
 
+    public static final ConfigKey<String> BACKUP_PATH = new StringConfigKey(
+            "backup.path",
+            List.of(KeyType.CONFIG),
+            "./data/backup");
+
+    public static final ConfigKey<String> BACKUP_EXTERNAL_TYPE = new StringConfigKey(
+            "backup.external.type",
+            List.of(KeyType.CONFIG));
+
+    public static final ConfigKey<String> BACKUP_EXTERNAL_BUCKET = new StringConfigKey(
+            "backup.external.bucket",
+            List.of(KeyType.CONFIG));
+
+    public static final ConfigKey<String> BACKUP_EXTERNAL_REGION = new StringConfigKey(
+            "backup.external.region",
+            List.of(KeyType.CONFIG));
+
+    public static final ConfigKey<String> BACKUP_EXTERNAL_ENDPOINT = new StringConfigKey(
+            "backup.external.endpoint",
+            List.of(KeyType.CONFIG));
+
     /**
      * Path to Liquibase master changelog file.
      */
