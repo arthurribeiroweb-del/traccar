@@ -1,0 +1,36 @@
+name: traccar
+
+services:
+  database:
+    image: postgres:16
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: traccar
+      POSTGRES_USER: traccar
+      POSTGRES_PASSWORD: change_me
+      TZ: UTC
+    volumes:
+      - traccar-db:/var/lib/postgresql/data
+
+  traccar:
+    image: traccar/traccar:latest
+    restart: unless-stopped
+    depends_on:
+      - database
+    ports:
+      - "8082:8082"
+      - "5000-5250:5000-5250/udp"
+    environment:
+      DATABASE_DRIVER: org.postgresql.Driver
+      DATABASE_URL: jdbc:postgresql://database:5432/traccar
+      DATABASE_USER: traccar
+      DATABASE_PASSWORD: change_me
+      TZ: UTC
+    volumes:
+      - traccar-logs:/opt/traccar/logs
+      - traccar-data:/opt/traccar/data
+
+volumes:
+  traccar-db:
+  traccar-logs:
+  traccar-data:
