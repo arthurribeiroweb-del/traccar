@@ -12,3 +12,8 @@ out
 build
 .vscode
 bin
+data
+logs
+run.out
+run.err
+deploy
