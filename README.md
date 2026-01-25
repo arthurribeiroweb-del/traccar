@@ -29,6 +29,30 @@ Some of the available features include:
 
 Please read [build from source documentation](https://www.traccar.org/build/) on the official website.
 
+## Coolify Deploy (Recommended)
+
+This repo includes a production-ready `docker-compose.yaml` for Coolify.
+
+Quick start (single domain):
+- Domain: `traccarpro.com.br`
+- Backend: this repo (Traccar server + Postgres)
+- Frontend: `traccar-web` repo (custom UI) on the same domain
+- Proxy paths: `/` -> frontend, `/api` and `/api/socket` -> backend
+
+Steps in Coolify:
+1) Create an app from GitHub: `arthurribeiroweb-del/traccar`
+2) Build type: Docker Compose
+3) Compose file: `docker-compose.yaml`
+4) Set environment variables (use strong values):
+   - `POSTGRES_PASSWORD`
+   - `DATABASE_PASSWORD`
+5) Expose ports: `8082` (HTTP) and UDP `5000-5250` if you use trackers
+6) Enable Auto Deploy (GitHub pushes deploy automatically)
+
+Notes:
+- Volumes are already defined to persist database and logs.
+- The Traccar admin UI is handled by the frontend app (see `traccar-web`).
+
 ## Team
 
 - Anton Tananaev ([anton@traccar.org](mailto:anton@traccar.org))
