@@ -153,6 +153,7 @@ public class WebServer implements LifecycleObject {
         FilterHolder filterHolder = new FilterHolder(new OverrideFileFilter());
         filterHolder.setInitParameter("overridePath", overrideReal.toString());
         servletHandler.addFilter(filterHolder, "/*", EnumSet.of(DispatcherType.REQUEST));
+        servletHandler.addFilter(new FilterHolder(new CacheControlFilter()), "/*", EnumSet.of(DispatcherType.REQUEST));
 
         if (config.getBoolean(Keys.WEB_DEBUG)) {
             servletHandler.setWelcomeFiles(new String[] {"debug.html", "index.html"});
