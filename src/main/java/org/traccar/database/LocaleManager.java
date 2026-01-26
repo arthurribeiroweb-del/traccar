@@ -82,8 +82,19 @@ public class LocaleManager {
     }
 
     private static String sanitizeLanguage(String language) {
-        if (language != null && !language.matches("^[A-Za-z0-9_-]+$")) {
-            throw new IllegalArgumentException("Invalid language");
+        if (language != null) {
+            if (!language.matches("^[A-Za-z0-9_-]+$")) {
+                throw new IllegalArgumentException("Invalid language");
+            }
+            language = language.replace('-', '_');
+            int separatorIndex = language.indexOf('_');
+            if (separatorIndex > 0 && separatorIndex + 1 < language.length()) {
+                String base = language.substring(0, separatorIndex).toLowerCase();
+                String region = language.substring(separatorIndex + 1).toUpperCase();
+                language = base + "_" + region;
+            } else {
+                language = language.toLowerCase();
+            }
         }
         return language;
     }

@@ -59,7 +59,8 @@ public class NotificationFormatter {
         velocityContext.put("notification", notification);
         velocityContext.put("device", device);
         velocityContext.put("event", event);
-        velocityContext.put("translations", localeManager.getBundle(UserUtil.getLanguage(server, user)));
+        String language = (String) velocityContext.get("language");
+        velocityContext.put("translations", localeManager.getBundle(language));
         if (position != null) {
             velocityContext.put("position", position);
             velocityContext.put("speedUnit", UserUtil.getSpeedUnit(server, user));

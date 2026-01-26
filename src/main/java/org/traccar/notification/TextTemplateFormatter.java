@@ -77,7 +77,11 @@ public class TextTemplateFormatter {
         velocityContext.put("dateTool", new DateTool());
         velocityContext.put("numberTool", new NumberTool());
         velocityContext.put("locale", Locale.getDefault());
-        velocityContext.put("language", UserUtil.getLanguage(server, user));
+        String language = UserUtil.getLanguage(server, user);
+        if (language == null || language.isBlank()) {
+            language = "pt_BR";
+        }
+        velocityContext.put("language", language);
 
         return velocityContext;
     }
