@@ -5,7 +5,6 @@ import org.traccar.BaseTest;
 import org.traccar.helper.DistanceCalculator;
 import org.traccar.model.Event;
 import org.traccar.model.Position;
-import org.traccar.reports.common.TripsConfig;
 
 import java.text.DateFormat;
 import java.text.ParseException;
@@ -33,7 +32,8 @@ public class NewMotionProcessorTest extends BaseTest {
 
     @Test
     public void testMotionDetected() throws ParseException {
-        TripsConfig tripsConfig = new TripsConfig(500, 300000, 0, 0, false, false);
+        double minDistance = 500;
+        long minDuration = 300000;
 
         double latitude = 0.0;
         double delta600 = DistanceCalculator.getLongitudeDelta(600, latitude);
@@ -47,17 +47,21 @@ public class NewMotionProcessorTest extends BaseTest {
         state.setPositions(positions);
 
         Position current = position("2017-01-01 00:05:00", latitude, delta600);
-        NewMotionProcessor.updateState(state, current, tripsConfig);
+        NewMotionProcessor.updateState(state, current, minDistance, minDuration);
 
         assertTrue(state.getMotionStreak());
         assertEquals(1, state.getEvents().size());
         assertEquals(Event.TYPE_DEVICE_MOVING, state.getEvents().get(0).getType());
         assertEquals(current.getFixTime(), state.getEvents().get(0).getEventTime());
+        assertEquals(current.getFixTime(), state.getEventTime());
+        assertEquals(current.getLatitude(), state.getEventLatitude());
+        assertEquals(current.getLongitude(), state.getEventLongitude());
     }
 
     @Test
     public void testStopDetected() throws ParseException {
-        TripsConfig tripsConfig = new TripsConfig(500, 300000, 0, 0, false, false);
+        double minDistance = 500;
+        long minDuration = 300000;
 
         double latitude = 0.0;
         double delta100 = DistanceCalculator.getLongitudeDelta(100, latitude);
@@ -72,17 +76,21 @@ public class NewMotionProcessorTest extends BaseTest {
         state.setMotionStreak(true);
 
         Position current = position("2017-01-01 00:06:00", latitude, delta100);
-        NewMotionProcessor.updateState(state, current, tripsConfig);
+        NewMotionProcessor.updateState(state, current, minDistance, minDuration);
 
         assertEquals(1, state.getEvents().size());
         assertEquals(Event.TYPE_DEVICE_STOPPED, state.getEvents().get(0).getType());
         assertEquals(current.getFixTime(), state.getEvents().get(0).getEventTime());
         assertFalse(state.getMotionStreak());
+        assertEquals(current.getFixTime(), state.getEventTime());
+        assertEquals(current.getLatitude(), state.getEventLatitude());
+        assertEquals(current.getLongitude(), state.getEventLongitude());
     }
 
     @Test
     public void testNoStopBeforeDuration() throws ParseException {
-        TripsConfig tripsConfig = new TripsConfig(500, 300000, 0, 0, false, false);
+        double minDistance = 500;
+        long minDuration = 300000;
 
         double latitude = 0.0;
         double delta100 = DistanceCalculator.getLongitudeDelta(100, latitude);
@@ -96,7 +104,7 @@ public class NewMotionProcessorTest extends BaseTest {
         state.setMotionStreak(true);
 
         Position current = position("2017-01-01 00:02:00", latitude, delta100);
-        NewMotionProcessor.updateState(state, current, tripsConfig);
+        NewMotionProcessor.updateState(state, current, minDistance, minDuration);
 
         assertTrue(state.getEvents().isEmpty());
         assertTrue(state.getMotionStreak());
@@ -104,7 +112,8 @@ public class NewMotionProcessorTest extends BaseTest {
 
     @Test
     public void testNoEventWhenAlreadyMoving() throws ParseException {
-        TripsConfig tripsConfig = new TripsConfig(500, 300000, 0, 0, false, false);
+        double minDistance = 500;
+        long minDuration = 300000;
 
         double latitude = 0.0;
         double delta600 = DistanceCalculator.getLongitudeDelta(600, latitude);
@@ -118,7 +127,7 @@ public class NewMotionProcessorTest extends BaseTest {
         state.setMotionStreak(true);
 
         Position current = position("2017-01-01 00:03:00", latitude, delta600);
-        NewMotionProcessor.updateState(state, current, tripsConfig);
+        NewMotionProcessor.updateState(state, current, minDistance, minDuration);
 
         assertTrue(state.getEvents().isEmpty());
         assertTrue(state.getMotionStreak());
@@ -126,7 +135,8 @@ public class NewMotionProcessorTest extends BaseTest {
 
     @Test
     public void testMotionWithFastAverageSpeed() throws ParseException {
-        TripsConfig tripsConfig = new TripsConfig(500, 300000, 0, 0, false, false);
+        double minDistance = 500;
+        long minDuration = 300000;
 
         double latitude = 0.0;
         double delta1200 = DistanceCalculator.getLongitudeDelta(1200, latitude);
@@ -138,7 +148,7 @@ public class NewMotionProcessorTest extends BaseTest {
         state.setPositions(positions);
 
         Position current = position("2017-01-01 00:10:00", latitude, delta1200);
-        NewMotionProcessor.updateState(state, current, tripsConfig);
+        NewMotionProcessor.updateState(state, current, minDistance, minDuration);
 
         assertTrue(state.getMotionStreak());
         assertEquals(1, state.getEvents().size());
@@ -148,7 +158,8 @@ public class NewMotionProcessorTest extends BaseTest {
 
     @Test
     public void testSlowSpeedStopMotionStop() throws ParseException {
-        TripsConfig tripsConfig = new TripsConfig(500, 300000, 0, 0, false, false);
+        double minDistance = 500;
+        long minDuration = 300000;
 
         double latitude = 0.0;
         double delta700 = DistanceCalculator.getLongitudeDelta(700, latitude);
@@ -162,7 +173,7 @@ public class NewMotionProcessorTest extends BaseTest {
         state.setMotionStreak(true);
 
         Position current = position("2017-01-01 00:10:00", latitude, delta700);
-        NewMotionProcessor.updateState(state, current, tripsConfig);
+        NewMotionProcessor.updateState(state, current, minDistance, minDuration);
 
         assertFalse(state.getMotionStreak());
         assertEquals(3, state.getEvents().size());
@@ -172,6 +183,9 @@ public class NewMotionProcessorTest extends BaseTest {
         assertEquals(last.getFixTime(), state.getEvents().get(1).getEventTime());
         assertEquals(Event.TYPE_DEVICE_STOPPED, state.getEvents().get(2).getType());
         assertEquals(current.getFixTime(), state.getEvents().get(2).getEventTime());
+        assertEquals(current.getFixTime(), state.getEventTime());
+        assertEquals(current.getLatitude(), state.getEventLatitude());
+        assertEquals(current.getLongitude(), state.getEventLongitude());
     }
 
 }
