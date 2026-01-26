@@ -24,6 +24,7 @@ import org.traccar.model.Event;
 import org.traccar.model.Position;
 import org.traccar.model.Report;
 import org.traccar.model.UserRestrictions;
+import org.traccar.helper.model.UserUtil;
 import org.traccar.reports.CombinedReportProvider;
 import org.traccar.reports.DevicesReportProvider;
 import org.traccar.reports.EventsReportProvider;
@@ -34,6 +35,7 @@ import org.traccar.reports.TripsReportProvider;
 import org.traccar.reports.common.ReportExecutor;
 import org.traccar.reports.common.ReportMailer;
 import org.traccar.reports.model.CombinedReportItem;
+import org.traccar.reports.model.DailySummaryItem;
 import org.traccar.reports.model.StopReportItem;
 import org.traccar.reports.model.SummaryReportItem;
 import org.traccar.reports.model.TripReportItem;
@@ -51,9 +53,16 @@ import jakarta.ws.rs.core.HttpHeaders;
 import jakarta.ws.rs.core.MediaType;
 import jakarta.ws.rs.core.Response;
 import jakarta.ws.rs.core.StreamingOutput;
+import java.time.ZonedDateTime;
+import java.time.temporal.ChronoUnit;
+import java.util.ArrayList;
 import java.util.Collection;
 import java.util.Date;
+import java.util.HashMap;
+import java.util.HashSet;
 import java.util.List;
+import java.util.Map;
+import java.util.Set;
 import java.util.stream.Stream;
 
 @Path("reports")
@@ -253,6 +262,61 @@ public class ReportResource extends SimpleObjectResource<Report> {
             @QueryParam("daily") boolean daily,
             @PathParam("type") String type) throws StorageException {
         return getSummaryExcel(deviceIds, groupIds, from, to, daily, type.equals("mail"));
+    }
+
+    @Path("daily")
+    @GET
+    public Collection<DailySummaryItem> getDaily(
+            @QueryParam("deviceId") List<Long> deviceIds,
+            @QueryParam("groupId") List<Long> groupIds) throws StorageException {
+        permissionsService.checkRestriction(getUserId(), UserRestrictions::getDisableReports);
+
+        var user = permissionsService.getUser(getUserId());
+        var timezone = UserUtil.getTimezone(permissionsService.getServer(), user).toZoneId();
+        ZonedDateTime fromDateTime = ZonedDateTime.now(timezone).truncatedTo(ChronoUnit.DAYS);
+        ZonedDateTime toDateTime = fromDateTime.plusDays(1).minusNanos(1);
+        Date from = Date.from(fromDateTime.toInstant());
+        Date to = Date.from(toDateTime.toInstant());
+
+        actionLogger.report(request, getUserId(), false, "daily", from, to, deviceIds, groupIds);
+
+        List<String> alertTypes = List.of(
+                Event.TYPE_GEOFENCE_ENTER,
+                Event.TYPE_GEOFENCE_EXIT,
+                Event.TYPE_DEVICE_OVERSPEED,
+                Event.TYPE_IGNITION_ON,
+                Event.TYPE_IGNITION_OFF,
+                Event.TYPE_ALARM);
+
+        Map<Long, Long> alertCounts = new HashMap<>();
+        try (Stream<Event> events = eventsReportProvider.getObjects(
+                getUserId(), deviceIds, groupIds, alertTypes, List.of(), from, to)) {
+            events.forEach(event -> alertCounts.merge(event.getDeviceId(), 1L, Long::sum));
+        }
+
+        Map<Long, SummaryReportItem> summaryByDevice = new HashMap<>();
+        for (SummaryReportItem summary : summaryReportProvider.getObjects(
+                getUserId(), deviceIds, groupIds, from, to, false)) {
+            summaryByDevice.put(summary.getDeviceId(), summary);
+        }
+
+        Set<Long> deviceIdsUnion = new HashSet<>();
+        deviceIdsUnion.addAll(summaryByDevice.keySet());
+        deviceIdsUnion.addAll(alertCounts.keySet());
+
+        Collection<DailySummaryItem> results = new ArrayList<>();
+        for (long deviceId : deviceIdsUnion) {
+            SummaryReportItem summary = summaryByDevice.get(deviceId);
+            DailySummaryItem item = new DailySummaryItem();
+            item.setDeviceId(deviceId);
+            item.setDistance(summary != null ? summary.getDistance() : 0.0);
+            item.setAlerts(alertCounts.getOrDefault(deviceId, 0L));
+            item.setFrom(from);
+            item.setTo(to);
+            results.add(item);
+        }
+
+        return results;
     }
 
     @Path("trips")
