@@ -5,4 +5,6 @@
   <entry key='database.url'>jdbc:mysql://db:3306/traccar?useUnicode=true&amp;characterEncoding=utf8&amp;serverTimezone=UTC&amp;useSSL=false</entry>
   <entry key='database.user'>traccar</entry>
   <entry key='database.password'>${MYSQL_PASSWORD}</entry>
+  <entry key='notificator.types'>web,mail,command,traccar</entry>
+  <entry key='notificator.traccar.key'>${TRACCAR_NOTIFICATOR_KEY}</entry>
 </properties>

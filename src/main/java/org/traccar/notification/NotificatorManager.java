@@ -62,6 +62,10 @@ public class NotificatorManager {
         if (types != null) {
             this.types.addAll(Arrays.asList(types.split(",")));
         }
+        String traccarKey = config.getString(Keys.NOTIFICATOR_TRACCAR_KEY);
+        if (this.types.contains("traccar") && (traccarKey == null || traccarKey.isBlank())) {
+            this.types.remove("traccar");
+        }
     }
 
     public Notificator getNotificator(String type) {

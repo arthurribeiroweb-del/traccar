@@ -33,7 +33,6 @@ import java.util.ArrayList;
 import java.util.Collection;
 import java.util.Date;
 import java.util.Set;
-import java.util.stream.Collectors;
 
 public class CombinedReportProvider {
 
@@ -70,12 +69,7 @@ public class CombinedReportProvider {
             item.setEvents(events.stream()
                     .filter(e -> e.getPositionId() > 0 && !EXCLUDE_TYPES.contains(e.getType()))
                     .toList());
-            var eventPositions = events.stream()
-                    .map(Event::getPositionId)
-                    .collect(Collectors.toSet());
-            item.setPositions(positions.stream()
-                    .filter(p -> eventPositions.contains(p.getId()))
-                    .toList());
+            item.setPositions(positions);
             result.add(item);
         }
         return result;
