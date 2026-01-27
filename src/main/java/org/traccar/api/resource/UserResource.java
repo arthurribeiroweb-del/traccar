@@ -121,6 +121,8 @@ public class UserResource extends BaseObjectResource<User> {
             }
         }
 
+        UserUtil.applyServerDefaults(entity, permissionsService.getServer());
+
         entity.setId(storage.addObject(entity, new Request(new Columns.Exclude("id"))));
         storage.updateObject(entity, new Request(
                 new Columns.Include("hashedPassword", "salt"),

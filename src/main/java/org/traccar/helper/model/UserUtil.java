@@ -60,6 +60,46 @@ public final class UserUtil {
         return lookupStringAttribute(server, user, "language", null);
     }
 
+    public static void applyServerDefaults(User user, Server server) {
+        if (isEmpty(user.getMap())) {
+            String value = server.getMap();
+            if (!isEmpty(value)) {
+                user.setMap(value);
+            }
+        }
+        if (isEmpty(user.getCoordinateFormat())) {
+            String value = server.getCoordinateFormat();
+            if (!isEmpty(value)) {
+                user.setCoordinateFormat(value);
+            }
+        }
+        if (isEmpty(user.getPoiLayer())) {
+            String value = server.getPoiLayer();
+            if (!isEmpty(value)) {
+                user.setPoiLayer(value);
+            }
+        }
+        applyAttributeDefault(user, server, "speedUnit");
+        applyAttributeDefault(user, server, "distanceUnit");
+        applyAttributeDefault(user, server, "altitudeUnit");
+        applyAttributeDefault(user, server, "volumeUnit");
+        applyAttributeDefault(user, server, "timezone");
+    }
+
+    private static void applyAttributeDefault(User user, Server server, String key) {
+        String userValue = user.getString(key);
+        if (isEmpty(userValue)) {
+            String serverValue = server.getString(key);
+            if (!isEmpty(serverValue)) {
+                user.set(key, serverValue);
+            }
+        }
+    }
+
+    private static boolean isEmpty(String value) {
+        return value == null || value.isEmpty();
+    }
+
     private static String lookupStringAttribute(Server server, User user, String key, String defaultValue) {
         String preference;
         String serverPreference = server.getString(key);
