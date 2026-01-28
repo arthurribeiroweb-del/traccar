@@ -1,10 +1,10 @@
-#set($subject = "$device.name: entrou na cerca")
-#set($digest = "$device.name entrou na cerca $geofence.name em $dateTool.format('dd/MM/yyyy HH:mm', $event.eventTime, $locale, $timezone)#{if}($position.address) - $position.address#{end}")
+#set($subject = "$device.name")
+#set($digest = "Entrou na cerca: $geofenceName • $dateTool.format('dd/MM/yyyy HH:mm', $event.eventTime, $locale, $timezone)#{if}($position.address) - $position.address#{end}")
 <!DOCTYPE html>
 <html>
 <body>
 Dispositivo: $device.name<br>
-Entrou na cerca: $geofence.name<br>
+Entrou na cerca: $geofenceName<br>
 Hora: $dateTool.format('dd/MM/yyyy HH:mm', $event.eventTime, $locale, $timezone)<br>
 Endereço: <a href="$webUrl/event/$event.id">#{if}($position.address)$position.address#{else}$position.latitude&deg;, $position.longitude&deg;#{end}</a><br>
 <br>

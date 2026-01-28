@@ -67,7 +67,14 @@ public class NotificationFormatter {
             velocityContext.put("distanceUnit", UserUtil.getDistanceUnit(server, user));
             velocityContext.put("volumeUnit", UserUtil.getVolumeUnit(server, user));
         }
-        if (event.getGeofenceId() != 0) {
+        if (Event.TYPE_GEOFENCE_ENTER.equals(event.getType()) || Event.TYPE_GEOFENCE_EXIT.equals(event.getType())) {
+            Geofence geofence = event.getGeofenceId() != 0
+                    ? cacheManager.getObject(Geofence.class, event.getGeofenceId()) : null;
+            String geofenceName = geofence != null && geofence.getName() != null && !geofence.getName().isBlank()
+                    ? geofence.getName() : "(sem nome)";
+            velocityContext.put("geofenceName", geofenceName);
+            velocityContext.put("geofence", geofence != null ? geofence : createStubGeofence(geofenceName));
+        } else if (event.getGeofenceId() != 0) {
             velocityContext.put("geofence", cacheManager.getObject(Geofence.class, event.getGeofenceId()));
         }
         if (event.getMaintenanceId() != 0) {
@@ -81,6 +88,12 @@ public class NotificationFormatter {
 
         boolean priority = notification != null && notification.getBoolean("priority");
         return textTemplateFormatter.formatMessage(velocityContext, event.getType(), priority);
+    }
+
+    private static Geofence createStubGeofence(String name) {
+        Geofence stub = new Geofence();
+        stub.setName(name != null ? name : "(sem nome)");
+        return stub;
     }
 
 }
