@@ -32,11 +32,13 @@ import org.traccar.helper.model.DeviceUtil;
 import org.traccar.model.Command;
 import org.traccar.model.Device;
 import org.traccar.model.Group;
+import org.traccar.model.ObjectOperation;
 import org.traccar.model.Position;
 import org.traccar.model.QueuedCommand;
 import org.traccar.model.Typed;
 import org.traccar.model.User;
 import org.traccar.model.UserRestrictions;
+import org.traccar.session.cache.CacheManager;
 import org.traccar.storage.StorageException;
 import org.traccar.storage.query.Columns;
 import org.traccar.storage.query.Condition;
@@ -77,11 +79,38 @@ public class CommandResource extends ExtendedObjectResource<Command> {
     @Inject
     private CommandSenderManager commandSenderManager;
 
+    @Inject
+    private CacheManager cacheManager;
+
     @Context
     private HttpServletRequest request;
 
     public CommandResource() {
         super(Command.class, "description");
+    }
+
+    private static boolean isEngineLockCommand(Command command) {
+        return Command.TYPE_ENGINE_STOP.equals(command.getType())
+                || Command.TYPE_ENGINE_RESUME.equals(command.getType());
+    }
+
+    private void updateDeviceBlocked(long deviceId, boolean blocked) {
+        var key = new Object();
+        try {
+            cacheManager.addDevice(deviceId, key);
+            Device device = cacheManager.getObject(Device.class, deviceId);
+            device.set("blocked", blocked);
+            device.set("blockedAt", System.currentTimeMillis());
+            device.set("blockedSource", "command");
+            storage.updateObject(device, new Request(
+                    new Columns.Include("attributes"),
+                    new Condition.Equals("id", deviceId)));
+            cacheManager.invalidateObject(true, Device.class, deviceId, ObjectOperation.UPDATE);
+        } catch (Exception error) {
+            LOGGER.warn("Failed to update device blocked attribute", error);
+        } finally {
+            cacheManager.removeDevice(deviceId, key);
+        }
     }
 
     private BaseProtocol getDeviceProtocol(long deviceId) throws StorageException {
@@ -138,9 +167,24 @@ public class CommandResource extends ExtendedObjectResource<Command> {
             for (Device device : devices) {
                 Command command = QueuedCommand.fromCommand(entity).toCommand();
                 command.setDeviceId(device.getId());
-                QueuedCommand queuedCommand = commandsManager.sendCommand(command);
+                QueuedCommand queuedCommand;
+                try {
+                    queuedCommand = commandsManager.sendCommand(command);
+                } catch (Exception error) {
+                    LOGGER.warn("Command send failed (group) user={} device={} type={}",
+                            getUserId(), device.getId(), command.getType(), error);
+                    throw error;
+                }
                 if (queuedCommand != null) {
                     queuedCommands.add(queuedCommand);
+                    LOGGER.info("Command queued (group) user={} device={} type={}",
+                            getUserId(), device.getId(), command.getType());
+                } else {
+                    LOGGER.info("Command sent (group) user={} device={} type={}",
+                            getUserId(), device.getId(), command.getType());
+                }
+                if (isEngineLockCommand(command)) {
+                    updateDeviceBlocked(device.getId(), Command.TYPE_ENGINE_STOP.equals(command.getType()));
                 }
             }
             if (!queuedCommands.isEmpty()) {
@@ -148,9 +192,26 @@ public class CommandResource extends ExtendedObjectResource<Command> {
             }
         } else {
             permissionsService.checkPermission(Device.class, getUserId(), entity.getDeviceId());
-            QueuedCommand queuedCommand = commandsManager.sendCommand(entity);
+            QueuedCommand queuedCommand;
+            try {
+                queuedCommand = commandsManager.sendCommand(entity);
+            } catch (Exception error) {
+                LOGGER.warn("Command send failed user={} device={} type={}",
+                        getUserId(), entity.getDeviceId(), entity.getType(), error);
+                throw error;
+            }
             if (queuedCommand != null) {
+                LOGGER.info("Command queued user={} device={} type={}",
+                        getUserId(), entity.getDeviceId(), entity.getType());
+                if (isEngineLockCommand(entity)) {
+                    updateDeviceBlocked(entity.getDeviceId(), Command.TYPE_ENGINE_STOP.equals(entity.getType()));
+                }
                 return Response.accepted(queuedCommand).build();
+            }
+            LOGGER.info("Command sent user={} device={} type={}",
+                    getUserId(), entity.getDeviceId(), entity.getType());
+            if (isEngineLockCommand(entity)) {
+                updateDeviceBlocked(entity.getDeviceId(), Command.TYPE_ENGINE_STOP.equals(entity.getType()));
             }
         }
 
