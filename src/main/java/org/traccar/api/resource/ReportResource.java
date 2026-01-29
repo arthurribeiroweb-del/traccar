@@ -280,36 +280,33 @@ public class ReportResource extends SimpleObjectResource<Report> {
 
         actionLogger.report(request, getUserId(), false, "daily", from, to, deviceIds, groupIds);
 
-        List<String> alertTypes = List.of(
-                Event.TYPE_GEOFENCE_ENTER,
-                Event.TYPE_GEOFENCE_EXIT,
-                Event.TYPE_DEVICE_OVERSPEED,
-                Event.TYPE_IGNITION_ON,
-                Event.TYPE_IGNITION_OFF,
-                Event.TYPE_ALARM);
-
         Map<Long, Long> alertCounts = new HashMap<>();
         try (Stream<Event> events = eventsReportProvider.getObjects(
-                getUserId(), deviceIds, groupIds, alertTypes, List.of(), from, to)) {
+                getUserId(), deviceIds, groupIds, List.of(Event.ALL_EVENTS), List.of(), from, to)) {
             events.forEach(event -> alertCounts.merge(event.getDeviceId(), 1L, Long::sum));
         }
 
-        Map<Long, SummaryReportItem> summaryByDevice = new HashMap<>();
-        for (SummaryReportItem summary : summaryReportProvider.getObjects(
-                getUserId(), deviceIds, groupIds, from, to, false)) {
-            summaryByDevice.put(summary.getDeviceId(), summary);
+        Map<Long, Double> distanceByDevice = new HashMap<>();
+        for (TripReportItem trip : tripsReportProvider.getObjects(
+                getUserId(), deviceIds, groupIds, from, to)) {
+            long did = trip.getDeviceId();
+            distanceByDevice.merge(did, trip.getDistance(), Double::sum);
         }
 
         Set<Long> deviceIdsUnion = new HashSet<>();
-        deviceIdsUnion.addAll(summaryByDevice.keySet());
+        deviceIdsUnion.addAll(distanceByDevice.keySet());
         deviceIdsUnion.addAll(alertCounts.keySet());
+
+        for (SummaryReportItem summary : summaryReportProvider.getObjects(
+                getUserId(), deviceIds, groupIds, from, to, false)) {
+            deviceIdsUnion.add(summary.getDeviceId());
+        }
 
         Collection<DailySummaryItem> results = new ArrayList<>();
         for (long deviceId : deviceIdsUnion) {
-            SummaryReportItem summary = summaryByDevice.get(deviceId);
             DailySummaryItem item = new DailySummaryItem();
             item.setDeviceId(deviceId);
-            item.setDistance(summary != null ? summary.getDistance() : 0.0);
+            item.setDistance(distanceByDevice.getOrDefault(deviceId, 0.0));
             item.setAlerts(alertCounts.getOrDefault(deviceId, 0L));
             item.setFrom(from);
             item.setTo(to);
