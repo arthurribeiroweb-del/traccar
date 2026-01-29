@@ -169,7 +169,7 @@ public class ReportUtils {
 
     private TripReportItem calculateTrip(
             Device device, Position startTrip, Position endTrip, double maxSpeed,
-            boolean ignoreOdometer) throws StorageException {
+            boolean ignoreOdometer, @Nullable List<Position> tripPositions) throws StorageException {
 
         TripReportItem trip = new TripReportItem();
 
@@ -198,12 +198,25 @@ public class ReportUtils {
         }
         trip.setEndAddress(endAddress);
 
-        trip.setDistance(PositionUtil.calculateDistance(startTrip, endTrip, !ignoreOdometer));
+        double distanceMeters;
+        double maxSpeedFromRoute = maxSpeed;
+        if (tripPositions != null && tripPositions.size() >= 2) {
+            distanceMeters = PositionUtil.calculateRouteDistanceMeters(tripPositions);
+            for (Position p : tripPositions) {
+                double s = p.getSpeed();
+                if (Double.isFinite(s) && s > maxSpeedFromRoute) {
+                    maxSpeedFromRoute = s;
+                }
+            }
+        } else {
+            distanceMeters = PositionUtil.calculateDistance(startTrip, endTrip, !ignoreOdometer);
+        }
+        trip.setDistance(distanceMeters);
         trip.setDuration(tripDuration);
         if (tripDuration > 0) {
             trip.setAverageSpeed(UnitsConverter.knotsFromMps(trip.getDistance() * 1000 / tripDuration));
         }
-        trip.setMaxSpeed(maxSpeed);
+        trip.setMaxSpeed(maxSpeedFromRoute);
         trip.setSpentFuel(calculateFuel(startTrip, endTrip, device));
 
         trip.setDriverUniqueId(findDriver(startTrip, endTrip));
@@ -268,10 +281,11 @@ public class ReportUtils {
     @SuppressWarnings("unchecked")
     private <T extends BaseReportItem> T calculateTripOrStop(
             Device device, Position startPosition, Position endPosition, double maxSpeed,
-            boolean ignoreOdometer, Class<T> reportClass) throws StorageException {
+            boolean ignoreOdometer, Class<T> reportClass,
+            @Nullable List<Position> tripPositions) throws StorageException {
 
         if (reportClass.equals(TripReportItem.class)) {
-            return (T) calculateTrip(device, startPosition, endPosition, maxSpeed, ignoreOdometer);
+            return (T) calculateTrip(device, startPosition, endPosition, maxSpeed, ignoreOdometer, tripPositions);
         } else {
             return (T) calculateStop(device, startPosition, endPosition, ignoreOdometer);
         }
@@ -299,6 +313,7 @@ public class ReportUtils {
 
         List<Event> events = new ArrayList<>();
         Map<Long, Position> positionMap = new HashMap<>();
+        Map<Long, Integer> positionIdToIndex = new HashMap<>();
         Position startPosition = null;
         double maxSpeed = 0;
         var positions = PositionUtil.getPositions(storage, device.getId(), from, to);
@@ -317,6 +332,7 @@ public class ReportUtils {
                 Position position = positions.get(i);
                 maxSpeed = Math.max(maxSpeed, position.getSpeed());
                 positionMap.put(position.getId(), position);
+                positionIdToIndex.put(position.getId(), i);
                 boolean motion = position.getBoolean(Position.KEY_MOTION);
                 MotionProcessor.updateState(motionState, last, positions.get(i), motion, tripsConfig);
                 if (motionState.getEvent() != null) {
@@ -334,9 +350,17 @@ public class ReportUtils {
             } else if (startPosition != null) {
                 Position endPosition = positionMap.get(event.getPositionId());
                 if (endPosition != null) {
+                    List<Position> tripPositions = null;
+                    if (trips) {
+                        Integer si = positionIdToIndex.get(startPosition.getId());
+                        Integer ei = positionIdToIndex.get(endPosition.getId());
+                        if (si != null && ei != null && si <= ei) {
+                            tripPositions = positions.subList(si, ei + 1);
+                        }
+                    }
                     result.add(calculateTripOrStop(
                             device, startPosition, endPosition,
-                            event.getDouble("maxSpeed"), ignoreOdometer, reportClass));
+                            event.getDouble("maxSpeed"), ignoreOdometer, reportClass, tripPositions));
                 }
                 startPosition = null;
             }
@@ -344,8 +368,16 @@ public class ReportUtils {
 
         if (startPosition != null) {
             Position endPosition = positions.get(positions.size() - 1);
+            List<Position> tripPositions = null;
+            if (trips) {
+                Integer si = positionIdToIndex.get(startPosition.getId());
+                Integer ei = positionIdToIndex.get(endPosition.getId());
+                if (si != null && ei != null && si <= ei) {
+                    tripPositions = positions.subList(si, ei + 1);
+                }
+            }
             result.add(calculateTripOrStop(
-                    device, startPosition, endPosition, maxSpeed, ignoreOdometer, reportClass));
+                    device, startPosition, endPosition, maxSpeed, ignoreOdometer, reportClass, tripPositions));
         }
 
         return result;
@@ -384,8 +416,16 @@ public class ReportUtils {
                 Position endPosition = storage.getObject(Position.class, new Request(
                         new Columns.All(), new Condition.Equals("id", event.getPositionId())));
                 if (endPosition != null) {
+                    List<Position> tripPositions = null;
+                    if (trips) {
+                        Date st = startPosition.getFixTime();
+                        Date et = endPosition.getFixTime();
+                        if (st != null && et != null && !et.before(st)) {
+                            tripPositions = PositionUtil.getPositions(storage, device.getId(), st, et);
+                        }
+                    }
                     result.add(calculateTripOrStop(
-                            device, startPosition, endPosition, 0, ignoreOdometer, reportClass));
+                            device, startPosition, endPosition, 0, ignoreOdometer, reportClass, tripPositions));
                 }
                 startPosition = null;
             }
@@ -393,8 +433,16 @@ public class ReportUtils {
 
         if (startPosition != null) {
             Position endPosition = PositionUtil.getEdgePosition(storage, device.getId(), from, to, true);
+            List<Position> tripPositions = null;
+            if (trips && endPosition != null) {
+                Date st = startPosition.getFixTime();
+                Date et = endPosition.getFixTime();
+                if (st != null && et != null && !et.before(st)) {
+                    tripPositions = PositionUtil.getPositions(storage, device.getId(), st, et);
+                }
+            }
             result.add(calculateTripOrStop(
-                    device, startPosition, endPosition, 0, ignoreOdometer, reportClass));
+                    device, startPosition, endPosition, 0, ignoreOdometer, reportClass, tripPositions));
         }
 
         return result;

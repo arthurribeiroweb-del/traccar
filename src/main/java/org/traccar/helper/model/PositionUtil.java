@@ -34,7 +34,55 @@ import java.util.stream.Stream;
 
 public final class PositionUtil {
 
+    /** 1 km/h in knots; segments below this are treated as stopped (match frontend Replay). */
+    private static final double STOP_SPEED_KNOTS = 0.539957;
+
     private PositionUtil() {
+    }
+
+    /**
+     * Haversine distance between two positions in meters.
+     */
+    public static double haversineMeters(double lat1, double lon1, double lat2, double lon2) {
+        double toRad = Math.PI / 180.0;
+        double r1 = lat1 * toRad;
+        double r2 = lat2 * toRad;
+        double dLat = (lat2 - lat1) * toRad;
+        double dLon = (lon2 - lon1) * toRad;
+        double R = 6_371_000;
+        double h = Math.sin(dLat / 2) * Math.sin(dLat / 2)
+                + Math.cos(r1) * Math.cos(r2) * Math.sin(dLon / 2) * Math.sin(dLon / 2);
+        return 2 * R * Math.asin(Math.sqrt(h));
+    }
+
+    /**
+     * Route distance in meters: sum of haversine segments between consecutive positions
+     * only when moving (speed &gt; 1 km/h). Aligns with Replay / Combined report logic.
+     * Positions must be sorted by fixTime.
+     */
+    public static double calculateRouteDistanceMeters(List<Position> positions) {
+        if (positions == null || positions.size() < 2) {
+            return 0;
+        }
+        double meters = 0;
+        for (int i = 1; i < positions.size(); i++) {
+            Position prev = positions.get(i - 1);
+            Position curr = positions.get(i);
+            long prevTime = prev.getFixTime().getTime();
+            long currTime = curr.getFixTime().getTime();
+            double deltaSec = (currTime - prevTime) / 1000.0;
+            if (!Double.isFinite(deltaSec) || deltaSec <= 0) {
+                continue;
+            }
+            double prevSpeedKnots = Double.isFinite(prev.getSpeed()) ? prev.getSpeed() : 0;
+            boolean stopped = prevSpeedKnots <= STOP_SPEED_KNOTS;
+            if (!stopped) {
+                meters += haversineMeters(
+                        prev.getLatitude(), prev.getLongitude(),
+                        curr.getLatitude(), curr.getLongitude());
+            }
+        }
+        return meters;
     }
 
     public static boolean isLatest(CacheManager cacheManager, Position position) {
