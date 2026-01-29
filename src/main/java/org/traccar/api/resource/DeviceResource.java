@@ -27,6 +27,7 @@ import org.traccar.database.MediaManager;
 import org.traccar.helper.LogAction;
 import org.traccar.model.Device;
 import org.traccar.model.DeviceAccumulators;
+import org.traccar.model.ObjectOperation;
 import org.traccar.model.Permission;
 import org.traccar.model.Position;
 import org.traccar.model.User;
@@ -51,6 +52,8 @@ import jakarta.ws.rs.QueryParam;
 import jakarta.ws.rs.core.HttpHeaders;
 import jakarta.ws.rs.core.MediaType;
 import jakarta.ws.rs.core.Response;
+import java.util.HashMap;
+import java.util.Map;
 import java.io.File;
 import java.io.FileInputStream;
 import java.io.IOException;
@@ -92,8 +95,52 @@ public class DeviceResource extends BaseObjectResource<Device> {
     @Context
     private HttpServletRequest request;
 
+    private static final String DISPLAY_NAME_ATTR = "displayName";
+
     public DeviceResource() {
         super(Device.class);
+    }
+
+    @Path("{id}")
+    @PUT
+    public Response update(Device entity) throws Exception {
+        permissionsService.checkPermission(Device.class, getUserId(), entity.getId());
+        User user = permissionsService.getUser(getUserId());
+        Device existing = storage.getObject(Device.class, new Request(
+                new Columns.All(), new Condition.Equals("id", entity.getId())));
+        if (existing == null) {
+            return Response.status(Response.Status.NOT_FOUND).build();
+        }
+
+        if (user.getAdministrator()) {
+            permissionsService.checkEdit(getUserId(), entity, false, false);
+            storage.updateObject(entity, new Request(
+                    new Columns.Exclude("id"),
+                    new Condition.Equals("id", entity.getId())));
+            cacheManager.invalidateObject(true, Device.class, entity.getId(), ObjectOperation.UPDATE);
+            actionLogger.edit(request, getUserId(), entity);
+            return Response.ok(entity).build();
+        }
+
+        Map<String, Object> attrs = new HashMap<>(existing.getAttributes());
+        Object dn = entity.getAttributes() != null ? entity.getAttributes().get(DISPLAY_NAME_ATTR) : null;
+        String v = dn != null ? dn.toString().trim() : "";
+        if (!v.isEmpty()) {
+            attrs.put(DISPLAY_NAME_ATTR, v);
+        } else {
+            attrs.remove(DISPLAY_NAME_ATTR);
+        }
+        existing.getAttributes().clear();
+        existing.getAttributes().putAll(attrs);
+        if (entity.getCategory() != null) {
+            existing.setCategory(entity.getCategory());
+        }
+        storage.updateObject(existing, new Request(
+                new Columns.Include("attributes", "category"),
+                new Condition.Equals("id", existing.getId())));
+        cacheManager.invalidateObject(true, Device.class, existing.getId(), ObjectOperation.UPDATE);
+        actionLogger.edit(request, getUserId(), existing);
+        return Response.ok(existing).build();
     }
 
     @GET
