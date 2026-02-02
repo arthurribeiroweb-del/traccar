@@ -96,9 +96,30 @@ public class DeviceResource extends BaseObjectResource<Device> {
     private HttpServletRequest request;
 
     private static final String DISPLAY_NAME_ATTR = "displayName";
+    private static final String SPEED_LIMIT_ATTR = "speedLimit";
 
     public DeviceResource() {
         super(Device.class);
+    }
+
+    private Double parsePositiveDouble(Object value) {
+        if (value == null) {
+            return null;
+        }
+        try {
+            double result;
+            if (value instanceof Number number) {
+                result = number.doubleValue();
+            } else {
+                result = Double.parseDouble(value.toString().replace(',', '.').trim());
+            }
+            if (result > 0) {
+                return result;
+            }
+        } catch (RuntimeException e) {
+            return null;
+        }
+        return null;
     }
 
     @Path("{id}")
@@ -125,10 +146,15 @@ public class DeviceResource extends BaseObjectResource<Device> {
         Map<String, Object> attrs = new HashMap<>(existing.getAttributes());
         Object dn = entity.getAttributes() != null ? entity.getAttributes().get(DISPLAY_NAME_ATTR) : null;
         String v = dn != null ? dn.toString().trim() : "";
+        Double speedLimit = parsePositiveDouble(
+                entity.getAttributes() != null ? entity.getAttributes().get(SPEED_LIMIT_ATTR) : null);
         if (!v.isEmpty()) {
             attrs.put(DISPLAY_NAME_ATTR, v);
         } else {
             attrs.remove(DISPLAY_NAME_ATTR);
+        }
+        if (speedLimit != null) {
+            attrs.put(SPEED_LIMIT_ATTR, speedLimit);
         }
         existing.getAttributes().clear();
         existing.getAttributes().putAll(attrs);
