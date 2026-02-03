@@ -112,8 +112,15 @@ public class DeviceResource extends BaseObjectResource<Device> {
             permissionsService.checkEdit(getUserId(), Device.class, false, false);
             existing.setName(DeviceUpdateValidator.normalizeName(entity.getName()));
             existing.setCategory(entity.getCategory());
+
+            // For non-admin users, allow changing only overspeed limit on device attributes.
+            if (entity.getAttributes() != null
+                    && entity.getAttributes().containsKey(Keys.EVENT_OVERSPEED_LIMIT.getKey())) {
+                existing.set(Keys.EVENT_OVERSPEED_LIMIT.getKey(), entity.get(Keys.EVENT_OVERSPEED_LIMIT.getKey()));
+            }
+
             storage.updateObject(existing, new Request(
-                    new Columns.Include("name", "category"),
+                    new Columns.Include("name", "category", "attributes"),
                     new Condition.Equals("id", existing.getId())));
             cacheManager.invalidateObject(true, Device.class, existing.getId(), ObjectOperation.UPDATE);
             actionLogger.edit(request, getUserId(), existing);
