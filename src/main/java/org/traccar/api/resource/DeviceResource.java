@@ -15,8 +15,6 @@
  */
 package org.traccar.api.resource;
 
-import com.fasterxml.jackson.databind.JsonNode;
-import com.fasterxml.jackson.databind.ObjectMapper;
 import jakarta.servlet.http.HttpServletRequest;
 import jakarta.ws.rs.FormParam;
 import jakarta.ws.rs.core.Context;
@@ -90,9 +88,6 @@ public class DeviceResource extends BaseObjectResource<Device> {
     private TokenManager tokenManager;
 
     @Inject
-    private ObjectMapper objectMapper;
-
-    @Inject
     private LogAction actionLogger;
 
     @Context
@@ -104,37 +99,25 @@ public class DeviceResource extends BaseObjectResource<Device> {
 
     @Path("{id}")
     @PUT
-    public Response update(@PathParam("id") long id, JsonNode payload) throws Exception {
-        Device entity = objectMapper.treeToValue(payload, Device.class);
-        if (entity.getId() != 0 && entity.getId() != id) {
-            throw new IllegalArgumentException("Device id mismatch");
-        }
-        entity.setId(id);
-
-        permissionsService.checkPermission(Device.class, getUserId(), id);
+    public Response update(Device entity) throws Exception {
+        permissionsService.checkPermission(Device.class, getUserId(), entity.getId());
         User user = permissionsService.getUser(getUserId());
         Device existing = storage.getObject(Device.class, new Request(
-                new Columns.All(), new Condition.Equals("id", id)));
+                new Columns.All(), new Condition.Equals("id", entity.getId())));
         if (existing == null) {
             return Response.status(Response.Status.NOT_FOUND).build();
         }
 
-        if (DeviceUpdateValidator.hasOnlyAllowedFields(payload)) {
+        if (!user.getAdministrator()) {
             permissionsService.checkEdit(getUserId(), Device.class, false, false);
             existing.setName(DeviceUpdateValidator.normalizeName(entity.getName()));
-            if (payload.has("category")) {
-                existing.setCategory(entity.getCategory());
-            }
+            existing.setCategory(entity.getCategory());
             storage.updateObject(existing, new Request(
                     new Columns.Include("name", "category"),
                     new Condition.Equals("id", existing.getId())));
             cacheManager.invalidateObject(true, Device.class, existing.getId(), ObjectOperation.UPDATE);
             actionLogger.edit(request, getUserId(), existing);
             return Response.ok(existing).build();
-        }
-
-        if (!user.getAdministrator()) {
-            throw new SecurityException("Write access denied");
         }
 
         permissionsService.checkEdit(getUserId(), entity, false, false);
