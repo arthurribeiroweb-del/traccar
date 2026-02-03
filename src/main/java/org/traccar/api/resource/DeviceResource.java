@@ -116,7 +116,10 @@ public class DeviceResource extends BaseObjectResource<Device> {
             // For non-admin users, allow changing only overspeed limit on device attributes.
             if (entity.getAttributes() != null
                     && entity.getAttributes().containsKey(Keys.EVENT_OVERSPEED_LIMIT.getKey())) {
-                existing.set(Keys.EVENT_OVERSPEED_LIMIT.getKey(), entity.get(Keys.EVENT_OVERSPEED_LIMIT.getKey()));
+                Object speedLimit = entity.getAttributes().get(Keys.EVENT_OVERSPEED_LIMIT.getKey());
+                if (speedLimit != null) {
+                    existing.getAttributes().put(Keys.EVENT_OVERSPEED_LIMIT.getKey(), speedLimit);
+                }
             }
 
             storage.updateObject(existing, new Request(
