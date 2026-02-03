@@ -419,6 +419,14 @@ public final class Keys {
             List.of(KeyType.CONFIG));
 
     /**
+     * Cooldown between radar overspeed notifications for the same device and geofence. Value in seconds.
+     */
+    public static final ConfigKey<Long> EVENT_RADAR_OVERSPEED_COOLDOWN = new LongConfigKey(
+            "event.radarOverspeed.cooldown",
+            List.of(KeyType.CONFIG),
+            60L);
+
+    /**
      * Driver behavior acceleration threshold. Value is in meter per second squared.
      */
     public static final ConfigKey<Double> EVENT_BEHAVIOR_ACCELERATION_THRESHOLD = new DoubleConfigKey(

@@ -1,3 +1,24 @@
+#set($radarId = $event.getString("radarId"))
+#set($radarName = $event.getString("radarName"))
+#set($radarSpeedKph = $event.getDouble("speedKph"))
+#set($radarLimitKph = $event.getDouble("limitKph"))
+#if($radarId)
+#set($subject = "🚨 Limite excedido no radar")
+#set($digest = "$device.name: $numberTool.format('0 km/h', $radarSpeedKph) (limite $numberTool.format('0 km/h', $radarLimitKph))#{if}($radarName) — $radarName#{end}")
+<!DOCTYPE html>
+<html>
+<body>
+Veiculo: $device.name<br>
+Radar: #{if}($radarName)$radarName#{else}Sem nome#{end}<br>
+Velocidade: $numberTool.format('0 km/h', $radarSpeedKph)<br>
+Limite: $numberTool.format('0 km/h', $radarLimitKph)<br>
+Hora: $dateTool.format('dd/MM/yyyy HH:mm', $event.eventTime, $locale, $timezone)<br>
+Endereco: <a href="$webUrl/event/$event.id">#{if}($position.address)$position.address#{else}$position.latitude&deg;, $position.longitude&deg;#{end}</a><br>
+<br>
+<a href="$webUrl/settings/notifications?token=$token">Cancelar subscricao</a>
+</body>
+</html>
+#else
 #set($subject = "$device.name: excedeu a velocidade")
 #if($speedUnit == "kmh")
 #set($speedValue = $position.speed * 1.852)
@@ -15,8 +36,9 @@
 Dispositivo: $device.name<br>
 Excedeu a velocidade: $speedString#{if}($geofence) na cerca $geofence.name#{end}<br>
 Hora: $dateTool.format('dd/MM/yyyy HH:mm', $event.eventTime, $locale, $timezone)<br>
-Endereço: <a href="$webUrl/event/$event.id">#{if}($position.address)$position.address#{else}$position.latitude&deg;, $position.longitude&deg;#{end}</a><br>
+Endereco: <a href="$webUrl/event/$event.id">#{if}($position.address)$position.address#{else}$position.latitude&deg;, $position.longitude&deg;#{end}</a><br>
 <br>
-<a href="$webUrl/settings/notifications?token=$token">Cancelar subscrição</a>
+<a href="$webUrl/settings/notifications?token=$token">Cancelar subscricao</a>
 </body>
 </html>
+#end
