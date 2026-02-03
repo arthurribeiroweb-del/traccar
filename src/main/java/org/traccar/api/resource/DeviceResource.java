@@ -15,6 +15,8 @@
  */
 package org.traccar.api.resource;
 
+import com.fasterxml.jackson.databind.JsonNode;
+import com.fasterxml.jackson.databind.ObjectMapper;
 import jakarta.servlet.http.HttpServletRequest;
 import jakarta.ws.rs.FormParam;
 import jakarta.ws.rs.core.Context;
@@ -52,8 +54,6 @@ import jakarta.ws.rs.QueryParam;
 import jakarta.ws.rs.core.HttpHeaders;
 import jakarta.ws.rs.core.MediaType;
 import jakarta.ws.rs.core.Response;
-import java.util.HashMap;
-import java.util.Map;
 import java.io.File;
 import java.io.FileInputStream;
 import java.io.IOException;
@@ -90,83 +90,60 @@ public class DeviceResource extends BaseObjectResource<Device> {
     private TokenManager tokenManager;
 
     @Inject
+    private ObjectMapper objectMapper;
+
+    @Inject
     private LogAction actionLogger;
 
     @Context
     private HttpServletRequest request;
 
-    private static final String DISPLAY_NAME_ATTR = "displayName";
-    private static final String SPEED_LIMIT_ATTR = "speedLimit";
-
     public DeviceResource() {
         super(Device.class);
     }
 
-    private Double parsePositiveDouble(Object value) {
-        if (value == null) {
-            return null;
-        }
-        try {
-            double result;
-            if (value instanceof Number number) {
-                result = number.doubleValue();
-            } else {
-                result = Double.parseDouble(value.toString().replace(',', '.').trim());
-            }
-            if (result > 0) {
-                return result;
-            }
-        } catch (RuntimeException e) {
-            return null;
-        }
-        return null;
-    }
-
     @Path("{id}")
     @PUT
-    public Response update(Device entity) throws Exception {
-        permissionsService.checkPermission(Device.class, getUserId(), entity.getId());
+    public Response update(@PathParam("id") long id, JsonNode payload) throws Exception {
+        Device entity = objectMapper.treeToValue(payload, Device.class);
+        if (entity.getId() != 0 && entity.getId() != id) {
+            throw new IllegalArgumentException("Device id mismatch");
+        }
+        entity.setId(id);
+
+        permissionsService.checkPermission(Device.class, getUserId(), id);
         User user = permissionsService.getUser(getUserId());
         Device existing = storage.getObject(Device.class, new Request(
-                new Columns.All(), new Condition.Equals("id", entity.getId())));
+                new Columns.All(), new Condition.Equals("id", id)));
         if (existing == null) {
             return Response.status(Response.Status.NOT_FOUND).build();
         }
 
-        if (user.getAdministrator()) {
-            permissionsService.checkEdit(getUserId(), entity, false, false);
-            storage.updateObject(entity, new Request(
-                    new Columns.Exclude("id"),
-                    new Condition.Equals("id", entity.getId())));
-            cacheManager.invalidateObject(true, Device.class, entity.getId(), ObjectOperation.UPDATE);
-            actionLogger.edit(request, getUserId(), entity);
-            return Response.ok(entity).build();
+        if (DeviceUpdateValidator.hasOnlyAllowedFields(payload)) {
+            permissionsService.checkEdit(getUserId(), Device.class, false, false);
+            existing.setName(DeviceUpdateValidator.normalizeName(entity.getName()));
+            if (payload.has("category")) {
+                existing.setCategory(entity.getCategory());
+            }
+            storage.updateObject(existing, new Request(
+                    new Columns.Include("name", "category"),
+                    new Condition.Equals("id", existing.getId())));
+            cacheManager.invalidateObject(true, Device.class, existing.getId(), ObjectOperation.UPDATE);
+            actionLogger.edit(request, getUserId(), existing);
+            return Response.ok(existing).build();
         }
 
-        Map<String, Object> attrs = new HashMap<>(existing.getAttributes());
-        Object dn = entity.getAttributes() != null ? entity.getAttributes().get(DISPLAY_NAME_ATTR) : null;
-        String v = dn != null ? dn.toString().trim() : "";
-        Double speedLimit = parsePositiveDouble(
-                entity.getAttributes() != null ? entity.getAttributes().get(SPEED_LIMIT_ATTR) : null);
-        if (!v.isEmpty()) {
-            attrs.put(DISPLAY_NAME_ATTR, v);
-        } else {
-            attrs.remove(DISPLAY_NAME_ATTR);
+        if (!user.getAdministrator()) {
+            throw new SecurityException("Write access denied");
         }
-        if (speedLimit != null) {
-            attrs.put(SPEED_LIMIT_ATTR, speedLimit);
-        }
-        existing.getAttributes().clear();
-        existing.getAttributes().putAll(attrs);
-        if (entity.getCategory() != null) {
-            existing.setCategory(entity.getCategory());
-        }
-        storage.updateObject(existing, new Request(
-                new Columns.Include("attributes", "category"),
-                new Condition.Equals("id", existing.getId())));
-        cacheManager.invalidateObject(true, Device.class, existing.getId(), ObjectOperation.UPDATE);
-        actionLogger.edit(request, getUserId(), existing);
-        return Response.ok(existing).build();
+
+        permissionsService.checkEdit(getUserId(), entity, false, false);
+        storage.updateObject(entity, new Request(
+                new Columns.Exclude("id"),
+                new Condition.Equals("id", entity.getId())));
+        cacheManager.invalidateObject(true, Device.class, entity.getId(), ObjectOperation.UPDATE);
+        actionLogger.edit(request, getUserId(), entity);
+        return Response.ok(entity).build();
     }
 
     @GET
