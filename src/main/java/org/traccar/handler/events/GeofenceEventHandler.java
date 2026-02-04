@@ -28,11 +28,17 @@ import java.util.List;
 
 public class GeofenceEventHandler extends BaseEventHandler {
 
+    private static final String ATTRIBUTE_RADAR = "radar";
+
     private final CacheManager cacheManager;
 
     @Inject
     public GeofenceEventHandler(CacheManager cacheManager) {
         this.cacheManager = cacheManager;
+    }
+
+    private boolean isRadarGeofence(Geofence geofence) {
+        return geofence != null && geofence.getBoolean(ATTRIBUTE_RADAR);
     }
 
     @Override
@@ -56,7 +62,7 @@ public class GeofenceEventHandler extends BaseEventHandler {
 
         for (long geofenceId : oldGeofences) {
             Geofence geofence = cacheManager.getObject(Geofence.class, geofenceId);
-            if (geofence != null) {
+            if (geofence != null && !isRadarGeofence(geofence)) {
                 long calendarId = geofence.getCalendarId();
                 Calendar calendar = calendarId != 0 ? cacheManager.getObject(Calendar.class, calendarId) : null;
                 if (calendar == null || calendar.checkMoment(position.getFixTime())) {
@@ -67,7 +73,11 @@ public class GeofenceEventHandler extends BaseEventHandler {
             }
         }
         for (long geofenceId : newGeofences) {
-            long calendarId = cacheManager.getObject(Geofence.class, geofenceId).getCalendarId();
+            Geofence geofence = cacheManager.getObject(Geofence.class, geofenceId);
+            if (geofence == null || isRadarGeofence(geofence)) {
+                continue;
+            }
+            long calendarId = geofence.getCalendarId();
             Calendar calendar = calendarId != 0 ? cacheManager.getObject(Calendar.class, calendarId) : null;
             if (calendar == null || calendar.checkMoment(position.getFixTime())) {
                 Event event = new Event(Event.TYPE_GEOFENCE_ENTER, position);
