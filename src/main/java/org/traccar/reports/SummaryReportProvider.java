@@ -104,6 +104,17 @@ public class SummaryReportProvider {
                     result.setAverageSpeed(UnitsConverter.knotsFromMps(result.getDistance() * 1000 / engineHours));
                 }
             }
+            /* Fallback: se engine hours nao disponivel, calcula velocidade media por duracao */
+            if (result.getAverageSpeed() == 0 && result.getDistance() > 0) {
+                long durationSeconds = (last.getFixTime().getTime() - first.getFixTime().getTime()) / 1000;
+                if (durationSeconds <= 0) {
+                    /* Primeira e ultima posicao com mesmo tempo: usa periodo do relatorio */
+                    durationSeconds = (to.getTime() - from.getTime()) / 1000;
+                }
+                if (durationSeconds > 0) {
+                    result.setAverageSpeed(UnitsConverter.knotsFromMps(result.getDistance() * 1000.0 / durationSeconds));
+                }
+            }
 
             if (!ignoreOdometer
                     && first.getDouble(Position.KEY_ODOMETER) != 0 && last.getDouble(Position.KEY_ODOMETER) != 0) {
