@@ -25,11 +25,13 @@ import org.traccar.config.Config;
 import org.traccar.config.Keys;
 import org.traccar.helper.LogAction;
 import org.traccar.helper.SessionHelper;
+import org.traccar.helper.model.DefaultNotificationHelper;
 import org.traccar.helper.model.UserUtil;
 import org.traccar.model.Device;
 import org.traccar.model.ManagedUser;
 import org.traccar.model.Permission;
 import org.traccar.model.User;
+import org.traccar.session.cache.CacheManager;
 import org.traccar.storage.StorageException;
 import org.traccar.storage.query.Columns;
 import org.traccar.storage.query.Condition;
@@ -57,6 +59,9 @@ public class UserResource extends BaseObjectResource<User> {
 
     @Inject
     private Config config;
+
+    @Inject
+    private CacheManager cacheManager;
 
     @Inject
     private LogAction actionLogger;
@@ -92,7 +97,7 @@ public class UserResource extends BaseObjectResource<User> {
     @Override
     @PermitAll
     @POST
-    public Response add(User entity) throws StorageException {
+    public Response add(User entity) throws Exception {
         User currentUser = getUserId() > 0 ? permissionsService.getUser(getUserId()) : null;
         if (currentUser == null || !currentUser.getAdministrator()) {
             permissionsService.checkUserUpdate(getUserId(), new User(), entity);
@@ -134,6 +139,11 @@ public class UserResource extends BaseObjectResource<User> {
             storage.addPermission(new Permission(User.class, getUserId(), ManagedUser.class, entity.getId()));
             actionLogger.link(request, getUserId(), User.class, getUserId(), ManagedUser.class, entity.getId());
         }
+
+        if (config.getBoolean(Keys.USERS_DEFAULT_NOTIFICATIONS)) {
+            DefaultNotificationHelper.createForUser(storage, cacheManager, entity.getId());
+        }
+
         return Response.ok(entity).build();
     }
 

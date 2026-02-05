@@ -609,6 +609,14 @@ public final class Keys {
             List.of(KeyType.CONFIG));
 
     /**
+     * Create default "kit basico" notifications (geofence, ignition, overspeed, maintenance) for new users.
+     */
+    public static final ConfigKey<Boolean> USERS_DEFAULT_NOTIFICATIONS = new BooleanConfigKey(
+            "users.defaultNotifications",
+            List.of(KeyType.CONFIG),
+            true);
+
+    /**
      * LDAP server URL. For more info check <a href="https://www.traccar.org/ldap/">LDAP config</a>.
      */
     public static final ConfigKey<String> LDAP_URL = new StringConfigKey(
@@ -1440,12 +1448,13 @@ public final class Keys {
 
     /**
      * Ignore odometer value reported by the device and use server-calculated total distance instead. This is useful
-     * if device reports invalid or zero odometer values.
+     * when using GPS-only (no physical odometer) or if device reports invalid or zero odometer values.
+     * Default true so GPS-based distance is used for all users by default.
      */
     public static final ConfigKey<Boolean> REPORT_IGNORE_ODOMETER = new BooleanConfigKey(
             "report.ignoreOdometer",
             List.of(KeyType.CONFIG, KeyType.DEVICE),
-            false);
+            true);
 
     /**
      * Boolean flag to enable or disable position filtering.
