@@ -56,6 +56,34 @@ public final class PositionUtil {
     }
 
     /**
+     * Moving time in seconds: sum of segment durations when previous position
+     * speed &gt; 1 km/h. Aligns with Replay / Combined report logic.
+     * Positions must be sorted by fixTime.
+     */
+    public static double calculateMovingTimeSeconds(List<Position> positions) {
+        if (positions == null || positions.size() < 2) {
+            return 0;
+        }
+        double seconds = 0;
+        for (int i = 1; i < positions.size(); i++) {
+            Position prev = positions.get(i - 1);
+            Position curr = positions.get(i);
+            long prevTime = prev.getFixTime().getTime();
+            long currTime = curr.getFixTime().getTime();
+            double deltaSec = (currTime - prevTime) / 1000.0;
+            if (!Double.isFinite(deltaSec) || deltaSec <= 0) {
+                continue;
+            }
+            double prevSpeedKnots = Double.isFinite(prev.getSpeed()) ? prev.getSpeed() : 0;
+            boolean stopped = prevSpeedKnots <= STOP_SPEED_KNOTS;
+            if (!stopped) {
+                seconds += deltaSec;
+            }
+        }
+        return seconds;
+    }
+
+    /**
      * Route distance in meters: sum of haversine segments between consecutive positions
      * only when moving (speed &gt; 1 km/h). Aligns with Replay / Combined report logic.
      * Positions must be sorted by fixTime.

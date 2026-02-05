@@ -73,11 +73,12 @@ public class SummaryReportProvider {
 
         Position first = null;
         Position last = null;
+        List<Position> positions = null;
         if (fast) {
             first = PositionUtil.getEdgePosition(storage, device.getId(), from, to, false);
             last = PositionUtil.getEdgePosition(storage, device.getId(), from, to, true);
         } else {
-            var positions = PositionUtil.getPositions(storage, device.getId(), from, to);
+            positions = PositionUtil.getPositions(storage, device.getId(), from, to);
             for (Position position : positions) {
                 if (first == null) {
                     first = position;
@@ -93,27 +94,40 @@ public class SummaryReportProvider {
             TripsConfig tripsConfig = new TripsConfig(
                     new AttributeUtil.StorageProvider(config, storage, permissionsService, device));
             boolean ignoreOdometer = tripsConfig.getIgnoreOdometer();
-            result.setDistance(PositionUtil.calculateDistance(first, last, !ignoreOdometer));
+
+            /* When we have full positions, use route distance + moving time (same as Combined report) */
+            if (positions != null && positions.size() >= 2) {
+                double routeDistanceMeters = PositionUtil.calculateRouteDistanceMeters(positions);
+                double movingTimeSec = PositionUtil.calculateMovingTimeSeconds(positions);
+                result.setDistance(routeDistanceMeters / 1000.0);
+                if (movingTimeSec > 0) {
+                    result.setAverageSpeed(UnitsConverter.knotsFromMps(routeDistanceMeters / movingTimeSec));
+                }
+            } else {
+                result.setDistance(PositionUtil.calculateDistance(first, last, !ignoreOdometer));
+                if (first.hasAttribute(Position.KEY_HOURS) && last.hasAttribute(Position.KEY_HOURS)) {
+                    result.setStartHours(first.getLong(Position.KEY_HOURS));
+                    result.setEndHours(last.getLong(Position.KEY_HOURS));
+                    long engineHours = result.getEngineHours();
+                    if (engineHours > 0) {
+                        result.setAverageSpeed(UnitsConverter.knotsFromMps(result.getDistance() * 1000 / engineHours));
+                    }
+                }
+                if (result.getAverageSpeed() == 0 && result.getDistance() > 0) {
+                    long durationSeconds = (last.getFixTime().getTime() - first.getFixTime().getTime()) / 1000;
+                    if (durationSeconds <= 0) {
+                        durationSeconds = (to.getTime() - from.getTime()) / 1000;
+                    }
+                    if (durationSeconds > 0) {
+                        result.setAverageSpeed(UnitsConverter.knotsFromMps(result.getDistance() * 1000.0 / durationSeconds));
+                    }
+                }
+            }
             result.setSpentFuel(reportUtils.calculateFuel(first, last, device));
 
             if (first.hasAttribute(Position.KEY_HOURS) && last.hasAttribute(Position.KEY_HOURS)) {
                 result.setStartHours(first.getLong(Position.KEY_HOURS));
                 result.setEndHours(last.getLong(Position.KEY_HOURS));
-                long engineHours = result.getEngineHours();
-                if (engineHours > 0) {
-                    result.setAverageSpeed(UnitsConverter.knotsFromMps(result.getDistance() * 1000 / engineHours));
-                }
-            }
-            /* Fallback: se engine hours nao disponivel, calcula velocidade media por duracao */
-            if (result.getAverageSpeed() == 0 && result.getDistance() > 0) {
-                long durationSeconds = (last.getFixTime().getTime() - first.getFixTime().getTime()) / 1000;
-                if (durationSeconds <= 0) {
-                    /* Primeira e ultima posicao com mesmo tempo: usa periodo do relatorio */
-                    durationSeconds = (to.getTime() - from.getTime()) / 1000;
-                }
-                if (durationSeconds > 0) {
-                    result.setAverageSpeed(UnitsConverter.knotsFromMps(result.getDistance() * 1000.0 / durationSeconds));
-                }
             }
 
             if (!ignoreOdometer
