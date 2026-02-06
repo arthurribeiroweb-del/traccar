@@ -27,6 +27,7 @@ import org.traccar.database.MediaManager;
 import org.traccar.helper.LogAction;
 import org.traccar.model.Device;
 import org.traccar.model.DeviceAccumulators;
+import org.traccar.model.Geofence;
 import org.traccar.model.ObjectOperation;
 import org.traccar.model.Permission;
 import org.traccar.model.Position;
@@ -57,8 +58,10 @@ import java.io.FileInputStream;
 import java.io.IOException;
 import java.security.GeneralSecurityException;
 import java.util.Date;
+import java.util.HashSet;
 import java.util.LinkedList;
 import java.util.List;
+import java.util.Set;
 import java.util.stream.Stream;
 
 @Path("devices")
@@ -68,6 +71,7 @@ public class DeviceResource extends BaseObjectResource<Device> {
 
     private static final int DEFAULT_BUFFER_SIZE = 8192;
     private static final int IMAGE_SIZE_LIMIT = 500000;
+    private static final String ATTRIBUTE_RADAR = "radar";
 
     @Inject
     private Config config;
@@ -95,6 +99,34 @@ public class DeviceResource extends BaseObjectResource<Device> {
 
     public DeviceResource() {
         super(Device.class);
+    }
+
+    private boolean isRadar(Geofence geofence) {
+        return geofence != null && geofence.getBoolean(ATTRIBUTE_RADAR);
+    }
+
+    private void syncRadarsToDevice(Device device) throws Exception {
+        Set<Long> linkedGeofenceIds = new HashSet<>();
+        for (Permission permission : storage.getPermissions(Device.class, device.getId(), Geofence.class, 0)) {
+            linkedGeofenceIds.add(permission.getPropertyId());
+        }
+
+        for (Geofence geofence : storage.getObjects(Geofence.class, new Request(
+                new Columns.Include("id", "attributes")))) {
+            if (!isRadar(geofence) || linkedGeofenceIds.contains(geofence.getId())) {
+                continue;
+            }
+            storage.addPermission(new Permission(Device.class, device.getId(), Geofence.class, geofence.getId()));
+            cacheManager.invalidatePermission(true, Device.class, device.getId(), Geofence.class, geofence.getId(), true);
+        }
+    }
+
+    @Override
+    @POST
+    public Response add(Device entity) throws Exception {
+        Response response = super.add(entity);
+        syncRadarsToDevice(entity);
+        return response;
     }
 
     @Path("{id}")

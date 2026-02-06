@@ -46,6 +46,7 @@ public class ScheduleManager implements LifecycleObject {
         Stream.of(
                 TaskHealthCheck.class,
                 TaskClearStatus.class,
+                TaskNotificationDeduplicate.class,
                 TaskExpirations.class,
                 TaskDeleteTemporary.class,
                 TaskReports.class,

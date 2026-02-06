@@ -26,10 +26,12 @@ import org.traccar.storage.query.Request;
 
 import jakarta.inject.Inject;
 import jakarta.ws.rs.Consumes;
+import jakarta.ws.rs.DELETE;
 import jakarta.ws.rs.POST;
 import jakarta.ws.rs.PUT;
 import jakarta.ws.rs.Path;
 import jakarta.ws.rs.Produces;
+import jakarta.ws.rs.PathParam;
 import jakarta.ws.rs.core.MediaType;
 import jakarta.ws.rs.core.Response;
 import java.util.HashSet;
@@ -51,6 +53,12 @@ public class GeofenceResource extends ExtendedObjectResource<Geofence> {
 
     private boolean isRadar(Geofence geofence) {
         return geofence != null && geofence.getBoolean(ATTRIBUTE_RADAR);
+    }
+
+    private void checkRadarAccess(Geofence geofence) {
+        if (isRadar(geofence) && permissionsService.notAdmin(getUserId())) {
+            throw new SecurityException("Radar geofence can be managed only by administrator");
+        }
     }
 
     private void syncRadarToAllDevices(Geofence geofence) throws Exception {
@@ -86,6 +94,7 @@ public class GeofenceResource extends ExtendedObjectResource<Geofence> {
     @Override
     @POST
     public Response add(Geofence entity) throws Exception {
+        checkRadarAccess(entity);
         Response response = super.add(entity);
         syncRadarToAllDevices(entity);
         return response;
@@ -98,6 +107,8 @@ public class GeofenceResource extends ExtendedObjectResource<Geofence> {
         Geofence existing = storage.getObject(Geofence.class, new Request(
                 new Columns.Include("id", "attributes"),
                 new Condition.Equals("id", entity.getId())));
+        checkRadarAccess(existing);
+        checkRadarAccess(entity);
         boolean wasRadar = isRadar(existing);
 
         Response response = super.update(entity);
@@ -109,6 +120,16 @@ public class GeofenceResource extends ExtendedObjectResource<Geofence> {
         }
 
         return response;
+    }
+
+    @Path("{id}")
+    @DELETE
+    public Response remove(@PathParam("id") long id) throws Exception {
+        Geofence existing = storage.getObject(Geofence.class, new Request(
+                new Columns.Include("id", "attributes"),
+                new Condition.Equals("id", id)));
+        checkRadarAccess(existing);
+        return super.remove(id);
     }
 
 }
