@@ -173,6 +173,14 @@ public class OverspeedEventHandler extends BaseEventHandler {
         }
     }
 
+    private Event createOverspeedEvent(Position position, double speedLimit, long geofenceId) {
+        Event event = new Event(Event.TYPE_DEVICE_OVERSPEED, position);
+        event.set(OverspeedProcessor.ATTRIBUTE_SPEED, position.getSpeed());
+        event.set(Position.KEY_SPEED_LIMIT, speedLimit);
+        event.setGeofenceId(geofenceId);
+        return event;
+    }
+
     @Override
     public void onPosition(Position position, Callback callback) {
 
@@ -198,6 +206,21 @@ public class OverspeedEventHandler extends BaseEventHandler {
         }
 
         if (speedLimit == 0) {
+            return;
+        }
+
+        Geofence selectedGeofence = geofenceSelection.geofenceId != 0
+                ? cacheManager.getObject(Geofence.class, geofenceSelection.geofenceId) : null;
+
+        if (isRadarEnabled(selectedGeofence)) {
+            if (position.getSpeed() > speedLimit * multiplier) {
+                if (inRadarCooldown(deviceId, geofenceSelection.geofenceId)) {
+                    return;
+                }
+                Event event = createOverspeedEvent(position, speedLimit, geofenceSelection.geofenceId);
+                appendRadarAttributes(event, selectedGeofence);
+                callback.eventDetected(event);
+            }
             return;
         }
 

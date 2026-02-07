@@ -20,6 +20,7 @@ import org.traccar.model.Device;
 import org.traccar.model.Geofence;
 import org.traccar.model.Permission;
 import org.traccar.session.cache.CacheManager;
+import org.traccar.storage.StorageException;
 import org.traccar.storage.query.Columns;
 import org.traccar.storage.query.Condition;
 import org.traccar.storage.query.Request;
@@ -55,7 +56,7 @@ public class GeofenceResource extends ExtendedObjectResource<Geofence> {
         return geofence != null && geofence.getBoolean(ATTRIBUTE_RADAR);
     }
 
-    private void checkRadarAccess(Geofence geofence) {
+    private void checkRadarAccess(Geofence geofence) throws StorageException {
         if (isRadar(geofence) && permissionsService.notAdmin(getUserId())) {
             throw new SecurityException("Radar geofence can be managed only by administrator");
         }

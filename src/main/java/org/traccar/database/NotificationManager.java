@@ -51,6 +51,7 @@ import java.util.Set;
 public class NotificationManager {
 
     private static final Logger LOGGER = LoggerFactory.getLogger(NotificationManager.class);
+    private static final String LEGACY_TYPE_OVERSPEED = "overspeed";
 
     private final Storage storage;
     private final CacheManager cacheManager;
@@ -96,7 +97,7 @@ public class NotificationManager {
         }
 
         var notifications = cacheManager.getDeviceNotifications(event.getDeviceId()).stream()
-                .filter(notification -> notification.getType().equals(event.getType()))
+                .filter(notification -> notificationMatchesEvent(notification.getType(), event.getType()))
                 .filter(notification -> {
                     if (event.getType().equals(Event.TYPE_ALARM)) {
                         String alarmsAttribute = notification.getString("alarms");
@@ -144,6 +145,13 @@ public class NotificationManager {
                 });
             });
         }
+    }
+
+    private boolean notificationMatchesEvent(String notificationType, String eventType) {
+        if (eventType.equals(Event.TYPE_DEVICE_OVERSPEED) && LEGACY_TYPE_OVERSPEED.equals(notificationType)) {
+            return true;
+        }
+        return eventType.equals(notificationType);
     }
 
     private void forwardEvent(Event event, Position position) {

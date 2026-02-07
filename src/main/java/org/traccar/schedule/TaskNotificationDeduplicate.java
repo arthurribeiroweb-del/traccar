@@ -18,6 +18,7 @@ package org.traccar.schedule;
 import jakarta.inject.Inject;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+import org.traccar.model.Device;
 import org.traccar.model.Notification;
 import org.traccar.model.Permission;
 import org.traccar.model.User;
@@ -29,8 +30,10 @@ import org.traccar.storage.query.Request;
 
 import java.util.ArrayList;
 import java.util.HashMap;
+import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
+import java.util.Set;
 import java.util.concurrent.ScheduledExecutorService;
 
 public class TaskNotificationDeduplicate implements ScheduleTask {
@@ -62,11 +65,31 @@ public class TaskNotificationDeduplicate implements ScheduleTask {
         return description == null || description.isBlank() || description.equals(notification.getType());
     }
 
+    private static boolean canReplaceNotification(
+            Notification original,
+            List<Notification> preferred,
+            Map<Long, Set<Long>> notificationDevices) {
+        Set<Long> originalDevices = notificationDevices.getOrDefault(original.getId(), Set.of());
+        for (Notification candidate : preferred) {
+            if (original.getAlways() && !candidate.getAlways()) {
+                continue;
+            }
+            if (candidate.getAlways()) {
+                return true;
+            }
+            Set<Long> candidateDevices = notificationDevices.getOrDefault(candidate.getId(), Set.of());
+            if (candidateDevices.containsAll(originalDevices)) {
+                return true;
+            }
+        }
+        return false;
+    }
+
     @Override
     public void run() {
         try {
             var notifications = storage.getObjects(Notification.class, new Request(
-                    new Columns.Include("id", "type", "description")));
+                    new Columns.Include("id", "type", "description", "always")));
             Map<Long, Notification> overspeedById = new HashMap<>();
             for (Notification notification : notifications) {
                 if (TYPE_DEVICE_OVERSPEED.equals(notification.getType())) {
@@ -75,6 +98,13 @@ public class TaskNotificationDeduplicate implements ScheduleTask {
             }
             if (overspeedById.isEmpty()) {
                 return;
+            }
+
+            Map<Long, Set<Long>> notificationDevices = new HashMap<>();
+            for (Permission permission : storage.getPermissions(Device.class, Notification.class)) {
+                notificationDevices
+                        .computeIfAbsent(permission.getPropertyId(), ignored -> new HashSet<>())
+                        .add(permission.getOwnerId());
             }
 
             var permissions = storage.getPermissions(User.class, Notification.class);
@@ -93,13 +123,18 @@ public class TaskNotificationDeduplicate implements ScheduleTask {
                 long userId = entry.getKey();
                 List<Notification> list = entry.getValue();
 
-                boolean hasPreferred = list.stream().anyMatch(notification -> !isDefaultDescription(notification));
-                if (!hasPreferred) {
+                List<Notification> preferred = list.stream()
+                        .filter(notification -> !isDefaultDescription(notification))
+                        .toList();
+                if (preferred.isEmpty()) {
                     continue;
                 }
 
                 for (Notification notification : list) {
                     if (!isDefaultDescription(notification)) {
+                        continue;
+                    }
+                    if (!canReplaceNotification(notification, preferred, notificationDevices)) {
                         continue;
                     }
                     storage.removePermission(new Permission(
