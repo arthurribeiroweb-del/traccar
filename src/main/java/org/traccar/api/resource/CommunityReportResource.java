@@ -157,9 +157,14 @@ public class CommunityReportResource extends BaseResource {
     }
 
     private void ensureCooldown(long userId, Date now) throws StorageException {
+        Condition activeStatusCondition = new Condition.Or(
+                new Condition.Equals("status", CommunityReport.STATUS_PENDING_PRIVATE),
+                new Condition.Equals("status", CommunityReport.STATUS_APPROVED_PUBLIC));
         List<CommunityReport> latest = storage.getObjects(CommunityReport.class, new Request(
                 new Columns.Include("createdAt"),
-                new Condition.Equals("createdByUserId", userId),
+                new Condition.And(
+                        new Condition.Equals("createdByUserId", userId),
+                        activeStatusCondition),
                 new Order("createdAt", true, 1)));
         if (!latest.isEmpty() && latest.get(0).getCreatedAt() != null
                 && now.getTime() - latest.get(0).getCreatedAt().getTime() < COOLDOWN_MILLIS) {
@@ -171,11 +176,16 @@ public class CommunityReportResource extends BaseResource {
         Date startOfDay = Date.from(LocalDate.now(ZoneId.systemDefault())
                 .atStartOfDay(ZoneId.systemDefault())
                 .toInstant());
+        Condition activeStatusCondition = new Condition.Or(
+                new Condition.Equals("status", CommunityReport.STATUS_PENDING_PRIVATE),
+                new Condition.Equals("status", CommunityReport.STATUS_APPROVED_PUBLIC));
         List<CommunityReport> daily = storage.getObjects(CommunityReport.class, new Request(
                 new Columns.Include("id"),
                 new Condition.And(
                         new Condition.Equals("createdByUserId", userId),
-                        new Condition.Between("createdAt", startOfDay, now))));
+                        new Condition.And(
+                                new Condition.Between("createdAt", startOfDay, now),
+                                activeStatusCondition))));
         if (daily.size() >= MAX_REPORTS_PER_DAY) {
             throw new IllegalArgumentException("RATE_LIMIT_DAILY");
         }
