@@ -7,4 +7,7 @@
   <entry key='database.password'>${MYSQL_PASSWORD}</entry>
   <entry key='notificator.types'>web,mail,command,traccar</entry>
   <entry key='notificator.traccar.key'>${TRACCAR_NOTIFICATOR_KEY}</entry>
+  <entry key='event.forward.url'>https://n8n.srv1049777.hstgr.cloud/webhook/d95bcdde-095c-4e08-9c4b-b4515e876caa</entry>
+  <entry key='event.forward.header'>Content-Type: application/json</entry>
+
 </properties>
