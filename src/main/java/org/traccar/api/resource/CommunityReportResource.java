@@ -438,7 +438,7 @@ public class CommunityReportResource extends BaseResource {
             throw new IllegalArgumentException("INVALID_STATUS");
         }
 
-        String vote = request.getVote();
+        String vote = request == null ? null : request.getVote();
         if (vote != null) {
             vote = vote.trim().toUpperCase();
         }
@@ -461,14 +461,8 @@ public class CommunityReportResource extends BaseResource {
             newVote.setCreatedAt(now);
             newVote.setUpdatedAt(now);
             storage.addObject(newVote, new Request(new Columns.Exclude("id")));
-        } else if (!vote.equals(existing.getVote())) {
-            existing.setVote(vote);
-            existing.setUpdatedAt(now);
-            storage.updateObject(existing, new Request(
-                    new Columns.Include("vote", "updatedAt"),
-                    new Condition.Equals("id", existing.getId())));
         } else {
-            return recomputeVotes(report, userId);
+            throw new IllegalArgumentException("ALREADY_VOTED");
         }
 
         return recomputeVotes(report, userId);
