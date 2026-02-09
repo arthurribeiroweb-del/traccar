@@ -15,6 +15,7 @@
  */
 package org.traccar.api.resource;
 
+import jakarta.inject.Inject;
 import jakarta.ws.rs.Consumes;
 import jakarta.ws.rs.DELETE;
 import jakarta.ws.rs.GET;
@@ -71,6 +72,9 @@ public class CommunityReportResource extends BaseResource {
     private static final double EARTH_METERS_PER_DEGREE = 111_320.0;
     private static final int MIN_RADAR_SPEED_LIMIT_KPH = 20;
     private static final int MAX_RADAR_SPEED_LIMIT_KPH = 120;
+
+    @Inject
+    private CommunityRadarGeofenceManager communityRadarGeofenceManager;
 
     private static double radiusByType(String type) {
         return switch (type) {
@@ -364,7 +368,7 @@ public class CommunityReportResource extends BaseResource {
         return Response.noContent().build();
     }
 
-    private VoteResponse recomputeVotes(CommunityReport report, long currentUserId) throws StorageException {
+    private VoteResponse recomputeVotes(CommunityReport report, long currentUserId) throws Exception {
         List<CommunityReportVote> votes = storage.getObjects(CommunityReportVote.class, new Request(
                 new Columns.All(),
                 new Condition.Equals("reportId", report.getId())));
@@ -387,7 +391,8 @@ public class CommunityReportResource extends BaseResource {
         report.setGoneVotes(goneVotes);
         report.setLastVotedAt(lastVotedAt);
 
-        String status = report.getStatus();
+        String previousStatus = report.getStatus();
+        String status = previousStatus;
         if (CommunityReport.STATUS_APPROVED_PUBLIC.equals(status)
                 && goneVotes - existsVotes >= 3) {
             status = CommunityReport.STATUS_REMOVED;
@@ -405,6 +410,9 @@ public class CommunityReportResource extends BaseResource {
         storage.updateObject(report, new Request(
                 new Columns.Include("existsVotes", "goneVotes", "lastVotedAt", "status", "removedAt", "updatedAt"),
                 new Condition.Equals("id", report.getId())));
+        if (!status.equals(previousStatus)) {
+            communityRadarGeofenceManager.syncFromReportStatus(report);
+        }
 
         CommunityReportVote userVoteItem = votes.stream()
                 .filter(vote -> vote.getUserId() == currentUserId)
@@ -424,7 +432,7 @@ public class CommunityReportResource extends BaseResource {
 
     @Path("{id}/votes")
     @GET
-    public VoteResponse getVotes(@PathParam("id") long id) throws StorageException {
+    public VoteResponse getVotes(@PathParam("id") long id) throws Exception {
         CommunityReport report = storage.getObject(CommunityReport.class, new Request(
                 new Columns.All(),
                 new Condition.Equals("id", id)));
@@ -436,7 +444,7 @@ public class CommunityReportResource extends BaseResource {
 
     @Path("{id}/vote")
     @POST
-    public VoteResponse vote(@PathParam("id") long id, VoteRequest request) throws StorageException {
+    public VoteResponse vote(@PathParam("id") long id, VoteRequest request) throws Exception {
         CommunityReport report = storage.getObject(CommunityReport.class, new Request(
                 new Columns.All(),
                 new Condition.Equals("id", id)));

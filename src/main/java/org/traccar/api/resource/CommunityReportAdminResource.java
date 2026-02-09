@@ -15,6 +15,7 @@
  */
 package org.traccar.api.resource;
 
+import jakarta.inject.Inject;
 import jakarta.ws.rs.Consumes;
 import jakarta.ws.rs.GET;
 import jakarta.ws.rs.POST;
@@ -25,9 +26,9 @@ import jakarta.ws.rs.QueryParam;
 import jakarta.ws.rs.WebApplicationException;
 import jakarta.ws.rs.core.MediaType;
 import jakarta.ws.rs.core.Response;
+import org.traccar.api.BaseResource;
 import org.traccar.model.CommunityReport;
 import org.traccar.model.User;
-import org.traccar.api.BaseResource;
 import org.traccar.storage.StorageException;
 import org.traccar.storage.query.Columns;
 import org.traccar.storage.query.Condition;
@@ -47,6 +48,9 @@ public class CommunityReportAdminResource extends BaseResource {
 
     private static final int MIN_RADAR_SPEED_LIMIT_KPH = 20;
     private static final int MAX_RADAR_SPEED_LIMIT_KPH = 120;
+
+    @Inject
+    private CommunityRadarGeofenceManager communityRadarGeofenceManager;
 
     private static final Set<String> ALLOWED_STATUSES = Set.of(
             CommunityReport.STATUS_PENDING_PRIVATE,
@@ -169,7 +173,7 @@ public class CommunityReportAdminResource extends BaseResource {
     @POST
     public CommunityReport approve(
             @PathParam("id") long id,
-            ApproveCommunityReportRequest request) throws StorageException {
+            ApproveCommunityReportRequest request) throws Exception {
         permissionsService.checkAdmin(getUserId());
 
         CommunityReport report = getRequiredReport(id);
@@ -217,6 +221,7 @@ public class CommunityReportAdminResource extends BaseResource {
         storage.updateObject(report, new Request(
                 new Columns.Include(updateColumns),
                 new Condition.Equals("id", id)));
+        communityRadarGeofenceManager.syncFromApprovedReport(report);
 
         fillAuthorNames(List.of(report));
         return report;
@@ -253,7 +258,7 @@ public class CommunityReportAdminResource extends BaseResource {
 
     @Path("{id}/deactivate")
     @POST
-    public CommunityReport deactivate(@PathParam("id") long id) throws StorageException {
+    public CommunityReport deactivate(@PathParam("id") long id) throws Exception {
         permissionsService.checkAdmin(getUserId());
 
         CommunityReport report = getRequiredReport(id);
@@ -275,6 +280,7 @@ public class CommunityReportAdminResource extends BaseResource {
                         "status", "rejectedAt", "rejectedByUserId", "approvedAt",
                         "approvedByUserId", "updatedAt", "expiresAt"),
                 new Condition.Equals("id", id)));
+        communityRadarGeofenceManager.syncFromReportStatus(report);
 
         fillAuthorNames(List.of(report));
         return report;
