@@ -20,6 +20,7 @@ import jakarta.inject.Singleton;
 import org.traccar.model.CommunityReport;
 import org.traccar.model.Device;
 import org.traccar.model.Geofence;
+import org.traccar.model.ObjectOperation;
 import org.traccar.model.Permission;
 import org.traccar.model.User;
 import org.traccar.session.cache.CacheManager;
@@ -145,10 +146,12 @@ public class CommunityRadarGeofenceManager {
 
         if (geofence.getId() == 0) {
             geofence.setId(storage.addObject(geofence, new Request(new Columns.Exclude("id"))));
+            cacheManager.invalidateObject(true, Geofence.class, geofence.getId(), ObjectOperation.ADD);
         } else {
             storage.updateObject(geofence, new Request(
                     new Columns.Include("name", "description", "area", "attributes"),
                     new Condition.Equals("id", geofence.getId())));
+            cacheManager.invalidateObject(true, Geofence.class, geofence.getId(), ObjectOperation.UPDATE);
         }
 
         syncRadarToAllDevices(geofence);
@@ -180,5 +183,6 @@ public class CommunityRadarGeofenceManager {
         storage.updateObject(geofence, new Request(
                 new Columns.Include("attributes"),
                 new Condition.Equals("id", geofence.getId())));
+        cacheManager.invalidateObject(true, Geofence.class, geofence.getId(), ObjectOperation.UPDATE);
     }
 }
