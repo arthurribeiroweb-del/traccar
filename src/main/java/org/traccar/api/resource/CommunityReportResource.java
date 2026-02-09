@@ -67,6 +67,7 @@ public class CommunityReportResource extends BaseResource {
     private static final int MAX_REPORTS_PER_DAY = 10;
     private static final long COOLDOWN_MILLIS = 30_000;
     private static final long CANCEL_WINDOW_MILLIS = 120_000;
+    private static final long VOTE_COOLDOWN_MILLIS = 7L * 24 * 60 * 60 * 1000;
     private static final double EARTH_METERS_PER_DEGREE = 111_320.0;
     private static final int MIN_RADAR_SPEED_LIMIT_KPH = 20;
     private static final int MAX_RADAR_SPEED_LIMIT_KPH = 120;
@@ -403,13 +404,20 @@ public class CommunityReportResource extends BaseResource {
                 new Columns.Include("existsVotes", "goneVotes", "lastVotedAt", "status", "removedAt", "updatedAt"),
                 new Condition.Equals("id", report.getId())));
 
-        String userVote = votes.stream()
+        CommunityReportVote userVoteItem = votes.stream()
                 .filter(vote -> vote.getUserId() == currentUserId)
-                .map(CommunityReportVote::getVote)
                 .findFirst()
                 .orElse(null);
+        String userVote = userVoteItem == null ? null : userVoteItem.getVote();
+        Date nextVoteAt = null;
+        boolean canVote = true;
+        if (userVoteItem != null && userVoteItem.getUpdatedAt() != null) {
+            long unlockAt = userVoteItem.getUpdatedAt().getTime() + VOTE_COOLDOWN_MILLIS;
+            nextVoteAt = new Date(unlockAt);
+            canVote = now.getTime() >= unlockAt;
+        }
 
-        return new VoteResponse(existsVotes, goneVotes, userVote, lastVotedAt, status);
+        return new VoteResponse(existsVotes, goneVotes, userVote, lastVotedAt, status, canVote, nextVoteAt);
     }
 
     @Path("{id}/votes")
@@ -462,7 +470,15 @@ public class CommunityReportResource extends BaseResource {
             newVote.setUpdatedAt(now);
             storage.addObject(newVote, new Request(new Columns.Exclude("id")));
         } else {
-            throw new IllegalArgumentException("ALREADY_VOTED");
+            Date updatedAt = existing.getUpdatedAt() != null ? existing.getUpdatedAt() : existing.getCreatedAt();
+            if (updatedAt == null || now.getTime() - updatedAt.getTime() < VOTE_COOLDOWN_MILLIS) {
+                throw new IllegalArgumentException("VOTE_COOLDOWN_ACTIVE");
+            }
+            existing.setVote(vote);
+            existing.setUpdatedAt(now);
+            storage.updateObject(existing, new Request(
+                    new Columns.Include("vote", "updatedAt"),
+                    new Condition.Equals("id", existing.getId())));
         }
 
         return recomputeVotes(report, userId);
@@ -525,13 +541,19 @@ public class CommunityReportResource extends BaseResource {
         private String userVote;
         private Date lastVotedAt;
         private String status;
+        private boolean canVote;
+        private Date nextVoteAt;
 
-        public VoteResponse(int existsVotes, int goneVotes, String userVote, Date lastVotedAt, String status) {
+        public VoteResponse(
+                int existsVotes, int goneVotes, String userVote, Date lastVotedAt,
+                String status, boolean canVote, Date nextVoteAt) {
             this.existsVotes = existsVotes;
             this.goneVotes = goneVotes;
             this.userVote = userVote;
             this.lastVotedAt = lastVotedAt;
             this.status = status;
+            this.canVote = canVote;
+            this.nextVoteAt = nextVoteAt;
         }
 
         public int getExistsVotes() {
@@ -552,6 +574,14 @@ public class CommunityReportResource extends BaseResource {
 
         public String getStatus() {
             return status;
+        }
+
+        public boolean isCanVote() {
+            return canVote;
+        }
+
+        public Date getNextVoteAt() {
+            return nextVoteAt;
         }
     }
 
