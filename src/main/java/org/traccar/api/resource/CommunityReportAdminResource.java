@@ -207,10 +207,14 @@ public class CommunityReportAdminResource extends BaseResource {
         report.setUpdatedAt(now);
         report.setExpiresAt(calculateExpiration(report.getType(), now));
 
+        // Para BURACO não atualizamos radarSpeedLimit (evita erro de conversão null no H2)
+        String[] updateColumns = CommunityReport.TYPE_RADAR.equals(report.getType())
+                ? new String[]{"latitude", "longitude", "radarSpeedLimit", "status", "approvedAt", "approvedByUserId", "rejectedAt",
+                        "rejectedByUserId", "updatedAt", "expiresAt"}
+                : new String[]{"latitude", "longitude", "status", "approvedAt", "approvedByUserId", "rejectedAt",
+                        "rejectedByUserId", "updatedAt", "expiresAt"};
         storage.updateObject(report, new Request(
-                new Columns.Include(
-                        "latitude", "longitude", "radarSpeedLimit", "status", "approvedAt", "approvedByUserId", "rejectedAt",
-                        "rejectedByUserId", "updatedAt", "expiresAt"),
+                new Columns.Include(updateColumns),
                 new Condition.Equals("id", id)));
 
         fillAuthorNames(List.of(report));
