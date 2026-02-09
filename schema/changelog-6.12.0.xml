@@ -1,0 +1,66 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<databaseChangeLog
+  xmlns="http://www.liquibase.org/xml/ns/dbchangelog"
+  xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+  xsi:schemaLocation="http://www.liquibase.org/xml/ns/dbchangelog
+                      http://www.liquibase.org/xml/ns/dbchangelog/dbchangelog-3.4.xsd"
+  logicalFilePath="changelog-6.12.0">
+
+  <changeSet author="author" id="changelog-6.12.0">
+
+    <createTable tableName="tc_community_reports">
+      <column name="id" type="INT" autoIncrement="true">
+        <constraints primaryKey="true" nullable="false" />
+      </column>
+      <column name="type" type="VARCHAR(32)">
+        <constraints nullable="false" />
+      </column>
+      <column name="status" type="VARCHAR(32)">
+        <constraints nullable="false" />
+      </column>
+      <column name="latitude" type="DOUBLE">
+        <constraints nullable="false" />
+      </column>
+      <column name="longitude" type="DOUBLE">
+        <constraints nullable="false" />
+      </column>
+      <column name="createdbyuserid" type="INT">
+        <constraints nullable="false" />
+      </column>
+      <column name="createdat" type="TIMESTAMP">
+        <constraints nullable="false" />
+      </column>
+      <column name="updatedat" type="TIMESTAMP">
+        <constraints nullable="false" />
+      </column>
+      <column name="approvedat" type="TIMESTAMP" />
+      <column name="approvedbyuserid" type="INT" />
+      <column name="expiresat" type="TIMESTAMP" />
+      <column name="rejectedat" type="TIMESTAMP" />
+      <column name="rejectedbyuserid" type="INT" />
+    </createTable>
+
+    <createIndex indexName="tc_community_reports_status_idx" tableName="tc_community_reports">
+      <column name="status" />
+    </createIndex>
+
+    <createIndex indexName="tc_community_reports_type_idx" tableName="tc_community_reports">
+      <column name="type" />
+    </createIndex>
+
+    <createIndex indexName="tc_community_reports_createdby_idx" tableName="tc_community_reports">
+      <column name="createdbyuserid" />
+    </createIndex>
+
+    <createIndex indexName="tc_community_reports_createdat_idx" tableName="tc_community_reports">
+      <column name="createdat" />
+    </createIndex>
+
+    <createIndex indexName="tc_community_reports_lat_lon_idx" tableName="tc_community_reports">
+      <column name="latitude" />
+      <column name="longitude" />
+    </createIndex>
+
+  </changeSet>
+
+</databaseChangeLog>
