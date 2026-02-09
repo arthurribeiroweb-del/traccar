@@ -1,0 +1,57 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<databaseChangeLog
+  xmlns="http://www.liquibase.org/xml/ns/dbchangelog"
+  xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+  xsi:schemaLocation="http://www.liquibase.org/xml/ns/dbchangelog
+                      http://www.liquibase.org/xml/ns/dbchangelog/dbchangelog-3.4.xsd"
+  logicalFilePath="changelog-6.12.2">
+
+  <changeSet author="author" id="changelog-6.12.2-community-votes">
+
+    <addColumn tableName="tc_community_reports">
+      <column name="existsvotes" type="INT" defaultValueNumeric="0">
+        <constraints nullable="false" />
+      </column>
+      <column name="gonevotes" type="INT" defaultValueNumeric="0">
+        <constraints nullable="false" />
+      </column>
+      <column name="lastvotedat" type="TIMESTAMP" />
+      <column name="removedat" type="TIMESTAMP" />
+    </addColumn>
+
+    <createTable tableName="tc_community_report_votes">
+      <column name="id" type="INT" autoIncrement="true">
+        <constraints primaryKey="true" nullable="false" />
+      </column>
+      <column name="reportid" type="INT">
+        <constraints nullable="false" />
+      </column>
+      <column name="userid" type="INT">
+        <constraints nullable="false" />
+      </column>
+      <column name="vote" type="VARCHAR(16)">
+        <constraints nullable="false" />
+      </column>
+      <column name="createdat" type="TIMESTAMP">
+        <constraints nullable="false" />
+      </column>
+      <column name="updatedat" type="TIMESTAMP">
+        <constraints nullable="false" />
+      </column>
+    </createTable>
+
+    <addUniqueConstraint tableName="tc_community_report_votes"
+                         columnNames="reportid,userid"
+                         constraintName="tc_cr_votes_report_user_uidx"/>
+
+    <createIndex indexName="tc_cr_votes_report_idx" tableName="tc_community_report_votes">
+      <column name="reportid" />
+    </createIndex>
+
+    <createIndex indexName="tc_cr_votes_user_idx" tableName="tc_community_report_votes">
+      <column name="userid" />
+    </createIndex>
+
+  </changeSet>
+
+</databaseChangeLog>

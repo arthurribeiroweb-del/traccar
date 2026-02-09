@@ -30,6 +30,7 @@ public class CommunityReport extends BaseModel {
     public static final String STATUS_PENDING_PRIVATE = "PENDING_PRIVATE";
     public static final String STATUS_APPROVED_PUBLIC = "APPROVED_PUBLIC";
     public static final String STATUS_REJECTED = "REJECTED";
+    public static final String STATUS_REMOVED = "REMOVED";
 
     private String type;
 
@@ -163,6 +164,14 @@ public class CommunityReport extends BaseModel {
 
     private String authorName;
 
+    private Integer existsVotes;
+
+    private Integer goneVotes;
+
+    private Date lastVotedAt;
+
+    private Date removedAt;
+
     @QueryIgnore
     public String getAuthorName() {
         return authorName;
@@ -170,6 +179,38 @@ public class CommunityReport extends BaseModel {
 
     public void setAuthorName(String authorName) {
         this.authorName = authorName;
+    }
+
+    public Integer getExistsVotes() {
+        return existsVotes;
+    }
+
+    public void setExistsVotes(Integer existsVotes) {
+        this.existsVotes = existsVotes;
+    }
+
+    public Integer getGoneVotes() {
+        return goneVotes;
+    }
+
+    public void setGoneVotes(Integer goneVotes) {
+        this.goneVotes = goneVotes;
+    }
+
+    public Date getLastVotedAt() {
+        return lastVotedAt;
+    }
+
+    public void setLastVotedAt(Date lastVotedAt) {
+        this.lastVotedAt = lastVotedAt;
+    }
+
+    public Date getRemovedAt() {
+        return removedAt;
+    }
+
+    public void setRemovedAt(Date removedAt) {
+        this.removedAt = removedAt;
     }
 
 }

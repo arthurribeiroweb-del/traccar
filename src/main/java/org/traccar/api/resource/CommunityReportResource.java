@@ -28,6 +28,8 @@ import jakarta.ws.rs.core.MediaType;
 import jakarta.ws.rs.core.Response;
 import org.traccar.api.BaseResource;
 import org.traccar.model.CommunityReport;
+import org.traccar.model.CommunityReportVote;
+import org.traccar.model.User;
 import org.traccar.storage.StorageException;
 import org.traccar.storage.query.Columns;
 import org.traccar.storage.query.Condition;
@@ -38,7 +40,9 @@ import java.time.LocalDate;
 import java.time.ZoneId;
 import java.util.Collection;
 import java.util.Date;
+import java.util.HashMap;
 import java.util.List;
+import java.util.Map;
 import java.util.Set;
 
 @Path("community/reports")
@@ -53,7 +57,12 @@ public class CommunityReportResource extends BaseResource {
     private static final Set<String> ALLOWED_STATUSES = Set.of(
             CommunityReport.STATUS_PENDING_PRIVATE,
             CommunityReport.STATUS_APPROVED_PUBLIC,
-            CommunityReport.STATUS_REJECTED);
+            CommunityReport.STATUS_REJECTED,
+            CommunityReport.STATUS_REMOVED);
+
+    private static final Set<String> ALLOWED_VOTES = Set.of(
+            CommunityReportVote.VOTE_EXISTS,
+            CommunityReportVote.VOTE_GONE);
 
     private static final int MAX_REPORTS_PER_DAY = 10;
     private static final long COOLDOWN_MILLIS = 30_000;
@@ -218,6 +227,34 @@ public class CommunityReportResource extends BaseResource {
         }
     }
 
+    private void fillAuthorNames(List<CommunityReport> reports) throws StorageException {
+        Map<Long, String> names = new HashMap<>();
+        for (CommunityReport report : reports) {
+            long userId = report.getCreatedByUserId();
+            if (names.containsKey(userId)) {
+                continue;
+            }
+            User user = storage.getObject(User.class, new Request(
+                    new Columns.Include("id", "name", "login", "email"),
+                    new Condition.Equals("id", userId)));
+            String label = user == null ? null : user.getName();
+            if (label == null || label.isBlank()) {
+                label = user == null ? null : user.getLogin();
+            }
+            if (label == null || label.isBlank()) {
+                label = user == null ? null : user.getEmail();
+            }
+            if (label == null || label.isBlank()) {
+                label = "#" + userId;
+            }
+            names.put(userId, label);
+        }
+        for (CommunityReport report : reports) {
+            report.setAuthorName(names.getOrDefault(report.getCreatedByUserId(),
+                    "#" + report.getCreatedByUserId()));
+        }
+    }
+
     @POST
     public CommunityReport create(CreateCommunityReportRequest request) throws StorageException {
         String type = normalizeType(request != null ? request.getType() : null);
@@ -289,9 +326,11 @@ public class CommunityReportResource extends BaseResource {
             List<CommunityReport> reports = storage.getObjects(CommunityReport.class, new Request(
                     new Columns.All(), condition, new Order("createdAt", true, 500)));
             Date now = new Date();
-            return reports.stream()
+            List<CommunityReport> active = reports.stream()
                     .filter(report -> report.getExpiresAt() == null || report.getExpiresAt().after(now))
                     .toList();
+            fillAuthorNames(active);
+            return active;
         }
 
         throw new IllegalArgumentException("INVALID_SCOPE");
@@ -320,6 +359,119 @@ public class CommunityReportResource extends BaseResource {
 
         storage.removeObject(CommunityReport.class, new Request(new Condition.Equals("id", id)));
         return Response.noContent().build();
+    }
+
+    private VoteResponse recomputeVotes(CommunityReport report, long currentUserId) throws StorageException {
+        List<CommunityReportVote> votes = storage.getObjects(CommunityReportVote.class, new Request(
+                new Columns.All(),
+                new Condition.Equals("reportId", report.getId())));
+        Date now = new Date();
+        int existsVotes = 0;
+        int goneVotes = 0;
+        Date lastVotedAt = null;
+        for (CommunityReportVote vote : votes) {
+            if (CommunityReportVote.VOTE_EXISTS.equals(vote.getVote())) {
+                existsVotes++;
+            } else if (CommunityReportVote.VOTE_GONE.equals(vote.getVote())) {
+                goneVotes++;
+            }
+            if (vote.getUpdatedAt() != null
+                    && (lastVotedAt == null || vote.getUpdatedAt().after(lastVotedAt))) {
+                lastVotedAt = vote.getUpdatedAt();
+            }
+        }
+        report.setExistsVotes(existsVotes);
+        report.setGoneVotes(goneVotes);
+        report.setLastVotedAt(lastVotedAt);
+
+        String status = report.getStatus();
+        if (CommunityReport.STATUS_APPROVED_PUBLIC.equals(status)
+                && goneVotes - existsVotes >= 3) {
+            status = CommunityReport.STATUS_REMOVED;
+            report.setStatus(status);
+            report.setRemovedAt(now);
+            report.setUpdatedAt(now);
+        } else if (CommunityReport.STATUS_REMOVED.equals(status)
+                && existsVotes - goneVotes >= 1) {
+            status = CommunityReport.STATUS_APPROVED_PUBLIC;
+            report.setStatus(status);
+            report.setRemovedAt(null);
+            report.setUpdatedAt(now);
+        }
+
+        storage.updateObject(report, new Request(
+                new Columns.Include("existsVotes", "goneVotes", "lastVotedAt", "status", "removedAt", "updatedAt"),
+                new Condition.Equals("id", report.getId())));
+
+        String userVote = votes.stream()
+                .filter(vote -> vote.getUserId() == currentUserId)
+                .map(CommunityReportVote::getVote)
+                .findFirst()
+                .orElse(null);
+
+        return new VoteResponse(existsVotes, goneVotes, userVote, lastVotedAt, status);
+    }
+
+    @Path("{id}/votes")
+    @GET
+    public VoteResponse getVotes(@PathParam("id") long id) throws StorageException {
+        CommunityReport report = storage.getObject(CommunityReport.class, new Request(
+                new Columns.All(),
+                new Condition.Equals("id", id)));
+        if (report == null) {
+            throw new WebApplicationException(Response.status(Response.Status.NOT_FOUND).build());
+        }
+        return recomputeVotes(report, getUserId());
+    }
+
+    @Path("{id}/vote")
+    @POST
+    public VoteResponse vote(@PathParam("id") long id, VoteRequest request) throws StorageException {
+        CommunityReport report = storage.getObject(CommunityReport.class, new Request(
+                new Columns.All(),
+                new Condition.Equals("id", id)));
+        if (report == null) {
+            throw new WebApplicationException(Response.status(Response.Status.NOT_FOUND).build());
+        }
+        if (!CommunityReport.STATUS_APPROVED_PUBLIC.equals(report.getStatus())
+                && !CommunityReport.STATUS_REMOVED.equals(report.getStatus())) {
+            throw new IllegalArgumentException("INVALID_STATUS");
+        }
+
+        String vote = request.getVote();
+        if (vote != null) {
+            vote = vote.trim().toUpperCase();
+        }
+        if (!ALLOWED_VOTES.contains(vote)) {
+            throw new IllegalArgumentException("INVALID_VOTE");
+        }
+
+        long userId = getUserId();
+        CommunityReportVote existing = storage.getObject(CommunityReportVote.class, new Request(
+                new Columns.All(),
+                new Condition.And(
+                        new Condition.Equals("reportId", id),
+                        new Condition.Equals("userId", userId))));
+        Date now = new Date();
+        if (existing == null) {
+            CommunityReportVote newVote = new CommunityReportVote();
+            newVote.setReportId(id);
+            newVote.setUserId(userId);
+            newVote.setVote(vote);
+            newVote.setCreatedAt(now);
+            newVote.setUpdatedAt(now);
+            storage.addObject(newVote, new Request(new Columns.Exclude("id")));
+        } else if (!vote.equals(existing.getVote())) {
+            existing.setVote(vote);
+            existing.setUpdatedAt(now);
+            storage.updateObject(existing, new Request(
+                    new Columns.Include("vote", "updatedAt"),
+                    new Condition.Equals("id", existing.getId())));
+        } else {
+            return recomputeVotes(report, userId);
+        }
+
+        return recomputeVotes(report, userId);
     }
 
     public static class CreateCommunityReportRequest {
@@ -358,6 +510,54 @@ public class CommunityReportResource extends BaseResource {
 
         public void setRadarSpeedLimit(Integer radarSpeedLimit) {
             this.radarSpeedLimit = radarSpeedLimit;
+        }
+    }
+
+    public static class VoteRequest {
+        private String vote;
+
+        public String getVote() {
+            return vote;
+        }
+
+        public void setVote(String vote) {
+            this.vote = vote;
+        }
+    }
+
+    public static class VoteResponse {
+        private int existsVotes;
+        private int goneVotes;
+        private String userVote;
+        private Date lastVotedAt;
+        private String status;
+
+        public VoteResponse(int existsVotes, int goneVotes, String userVote, Date lastVotedAt, String status) {
+            this.existsVotes = existsVotes;
+            this.goneVotes = goneVotes;
+            this.userVote = userVote;
+            this.lastVotedAt = lastVotedAt;
+            this.status = status;
+        }
+
+        public int getExistsVotes() {
+            return existsVotes;
+        }
+
+        public int getGoneVotes() {
+            return goneVotes;
+        }
+
+        public String getUserVote() {
+            return userVote;
+        }
+
+        public Date getLastVotedAt() {
+            return lastVotedAt;
+        }
+
+        public String getStatus() {
+            return status;
         }
     }
 

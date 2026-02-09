@@ -51,7 +51,8 @@ public class CommunityReportAdminResource extends BaseResource {
     private static final Set<String> ALLOWED_STATUSES = Set.of(
             CommunityReport.STATUS_PENDING_PRIVATE,
             CommunityReport.STATUS_APPROVED_PUBLIC,
-            CommunityReport.STATUS_REJECTED);
+            CommunityReport.STATUS_REJECTED,
+            CommunityReport.STATUS_REMOVED);
 
     private static String normalizeStatus(String status) {
         if (status == null || status.isBlank()) {
