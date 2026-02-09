@@ -291,6 +291,8 @@ public class CommunityReportResource extends BaseResource {
         report.setCreatedByUserId(userId);
         report.setCreatedAt(now);
         report.setUpdatedAt(now);
+        report.setExistsVotes(0);
+        report.setGoneVotes(0);
 
         // Exclui radarSpeedLimit do insert se não for radar, para evitar erro quando coluna não existe
         Columns columns = CommunityReport.TYPE_RADAR.equals(type)
