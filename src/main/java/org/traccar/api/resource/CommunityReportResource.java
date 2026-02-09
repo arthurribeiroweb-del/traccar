@@ -60,7 +60,7 @@ public class CommunityReportResource extends BaseResource {
     private static final long CANCEL_WINDOW_MILLIS = 120_000;
     private static final double EARTH_METERS_PER_DEGREE = 111_320.0;
     private static final int MIN_RADAR_SPEED_LIMIT_KPH = 20;
-    private static final int MAX_RADAR_SPEED_LIMIT_KPH = 220;
+    private static final int MAX_RADAR_SPEED_LIMIT_KPH = 120;
 
     private static double radiusByType(String type) {
         return switch (type) {

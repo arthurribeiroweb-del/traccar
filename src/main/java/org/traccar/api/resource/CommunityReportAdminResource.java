@@ -46,7 +46,7 @@ import java.util.stream.Collectors;
 public class CommunityReportAdminResource extends BaseResource {
 
     private static final int MIN_RADAR_SPEED_LIMIT_KPH = 20;
-    private static final int MAX_RADAR_SPEED_LIMIT_KPH = 220;
+    private static final int MAX_RADAR_SPEED_LIMIT_KPH = 120;
 
     private static final Set<String> ALLOWED_STATUSES = Set.of(
             CommunityReport.STATUS_PENDING_PRIVATE,
