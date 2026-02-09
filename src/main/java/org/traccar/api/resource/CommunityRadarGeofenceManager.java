@@ -21,6 +21,7 @@ import org.traccar.model.CommunityReport;
 import org.traccar.model.Device;
 import org.traccar.model.Geofence;
 import org.traccar.model.Permission;
+import org.traccar.model.User;
 import org.traccar.session.cache.CacheManager;
 import org.traccar.storage.Storage;
 import org.traccar.storage.query.Columns;
@@ -107,6 +108,21 @@ public class CommunityRadarGeofenceManager {
         }
     }
 
+    private void syncRadarToAllUsers(Geofence geofence) throws Exception {
+        Set<Long> linkedUserIds = new HashSet<>();
+        for (Permission permission : storage.getPermissions(User.class, 0, Geofence.class, geofence.getId())) {
+            linkedUserIds.add(permission.getOwnerId());
+        }
+
+        for (User user : storage.getObjects(User.class, new Request(new Columns.Include("id")))) {
+            if (linkedUserIds.contains(user.getId())) {
+                continue;
+            }
+            storage.addPermission(new Permission(User.class, user.getId(), Geofence.class, geofence.getId()));
+            cacheManager.invalidatePermission(true, User.class, user.getId(), Geofence.class, geofence.getId(), true);
+        }
+    }
+
     private Geofence upsert(CommunityReport report, boolean active) throws Exception {
         if (!isRadarReport(report) || report.getRadarSpeedLimit() == null || report.getRadarSpeedLimit() <= 0) {
             return null;
@@ -136,6 +152,7 @@ public class CommunityRadarGeofenceManager {
         }
 
         syncRadarToAllDevices(geofence);
+        syncRadarToAllUsers(geofence);
         return geofence;
     }
 
