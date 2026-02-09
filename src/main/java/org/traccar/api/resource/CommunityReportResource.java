@@ -254,7 +254,11 @@ public class CommunityReportResource extends BaseResource {
         report.setCreatedAt(now);
         report.setUpdatedAt(now);
 
-        report.setId(storage.addObject(report, new Request(new Columns.Exclude("id"))));
+        // Exclui radarSpeedLimit do insert se não for radar, para evitar erro quando coluna não existe
+        Columns columns = CommunityReport.TYPE_RADAR.equals(type)
+                ? new Columns.Exclude("id")
+                : new Columns.Exclude("id", "radarSpeedLimit");
+        report.setId(storage.addObject(report, new Request(columns)));
         return report;
     }
 
