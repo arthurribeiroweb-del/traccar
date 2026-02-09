@@ -45,6 +45,9 @@ import java.util.stream.Collectors;
 @Consumes(MediaType.APPLICATION_JSON)
 public class CommunityReportAdminResource extends BaseResource {
 
+    private static final int MIN_RADAR_SPEED_LIMIT_KPH = 20;
+    private static final int MAX_RADAR_SPEED_LIMIT_KPH = 220;
+
     private static final Set<String> ALLOWED_STATUSES = Set.of(
             CommunityReport.STATUS_PENDING_PRIVATE,
             CommunityReport.STATUS_APPROVED_PUBLIC,
@@ -73,6 +76,12 @@ public class CommunityReportAdminResource extends BaseResource {
                 && latitude <= 90
                 && longitude >= -180
                 && longitude <= 180;
+    }
+
+    private static boolean isValidRadarSpeedLimit(Integer radarSpeedLimit) {
+        return radarSpeedLimit != null
+                && radarSpeedLimit >= MIN_RADAR_SPEED_LIMIT_KPH
+                && radarSpeedLimit <= MAX_RADAR_SPEED_LIMIT_KPH;
     }
 
     private CommunityReport getRequiredReport(long id) throws StorageException {
@@ -176,11 +185,19 @@ public class CommunityReportAdminResource extends BaseResource {
         if (hasCoordinateOverride && !isValidCoordinate(request.getLatitude(), request.getLongitude())) {
             throw new IllegalArgumentException("INVALID_COORDINATES");
         }
+        boolean hasRadarSpeedOverride = request != null && request.getRadarSpeedLimit() != null;
+        if (CommunityReport.TYPE_RADAR.equals(report.getType()) && hasRadarSpeedOverride
+                && !isValidRadarSpeedLimit(request.getRadarSpeedLimit())) {
+            throw new IllegalArgumentException("INVALID_RADAR_SPEED_LIMIT");
+        }
 
         Date now = new Date();
         if (hasCoordinateOverride) {
             report.setLatitude(request.getLatitude());
             report.setLongitude(request.getLongitude());
+        }
+        if (CommunityReport.TYPE_RADAR.equals(report.getType()) && hasRadarSpeedOverride) {
+            report.setRadarSpeedLimit(request.getRadarSpeedLimit());
         }
         report.setStatus(CommunityReport.STATUS_APPROVED_PUBLIC);
         report.setApprovedAt(now);
@@ -192,7 +209,7 @@ public class CommunityReportAdminResource extends BaseResource {
 
         storage.updateObject(report, new Request(
                 new Columns.Include(
-                        "latitude", "longitude", "status", "approvedAt", "approvedByUserId", "rejectedAt",
+                        "latitude", "longitude", "radarSpeedLimit", "status", "approvedAt", "approvedByUserId", "rejectedAt",
                         "rejectedByUserId", "updatedAt", "expiresAt"),
                 new Condition.Equals("id", id)));
 
@@ -251,6 +268,7 @@ public class CommunityReportAdminResource extends BaseResource {
     public static class ApproveCommunityReportRequest {
         private Double latitude;
         private Double longitude;
+        private Integer radarSpeedLimit;
 
         public Double getLatitude() {
             return latitude;
@@ -266,6 +284,14 @@ public class CommunityReportAdminResource extends BaseResource {
 
         public void setLongitude(Double longitude) {
             this.longitude = longitude;
+        }
+
+        public Integer getRadarSpeedLimit() {
+            return radarSpeedLimit;
+        }
+
+        public void setRadarSpeedLimit(Integer radarSpeedLimit) {
+            this.radarSpeedLimit = radarSpeedLimit;
         }
     }
 

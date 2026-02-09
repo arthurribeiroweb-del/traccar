@@ -59,6 +59,8 @@ public class CommunityReportResource extends BaseResource {
     private static final long COOLDOWN_MILLIS = 30_000;
     private static final long CANCEL_WINDOW_MILLIS = 120_000;
     private static final double EARTH_METERS_PER_DEGREE = 111_320.0;
+    private static final int MIN_RADAR_SPEED_LIMIT_KPH = 20;
+    private static final int MAX_RADAR_SPEED_LIMIT_KPH = 220;
 
     private static double radiusByType(String type) {
         return switch (type) {
@@ -90,6 +92,12 @@ public class CommunityReportResource extends BaseResource {
                 && latitude <= 90
                 && longitude >= -180
                 && longitude <= 180;
+    }
+
+    private static boolean isValidRadarSpeedLimit(Integer radarSpeedLimit) {
+        return radarSpeedLimit != null
+                && radarSpeedLimit >= MIN_RADAR_SPEED_LIMIT_KPH
+                && radarSpeedLimit <= MAX_RADAR_SPEED_LIMIT_KPH;
     }
 
     private static double haversineDistanceMeters(double lat1, double lon1, double lat2, double lon2) {
@@ -210,6 +218,15 @@ public class CommunityReportResource extends BaseResource {
             throw new IllegalArgumentException("INVALID_COORDINATES");
         }
 
+        Integer radarSpeedLimit = request.getRadarSpeedLimit();
+        if (CommunityReport.TYPE_RADAR.equals(type)) {
+            if (!isValidRadarSpeedLimit(radarSpeedLimit)) {
+                throw new IllegalArgumentException("INVALID_RADAR_SPEED_LIMIT");
+            }
+        } else {
+            radarSpeedLimit = null;
+        }
+
         long userId = getUserId();
         Date now = new Date();
 
@@ -222,6 +239,7 @@ public class CommunityReportResource extends BaseResource {
         report.setStatus(CommunityReport.STATUS_PENDING_PRIVATE);
         report.setLatitude(request.getLatitude());
         report.setLongitude(request.getLongitude());
+        report.setRadarSpeedLimit(radarSpeedLimit);
         report.setCreatedByUserId(userId);
         report.setCreatedAt(now);
         report.setUpdatedAt(now);
@@ -294,6 +312,7 @@ public class CommunityReportResource extends BaseResource {
         private String type;
         private double latitude;
         private double longitude;
+        private Integer radarSpeedLimit;
 
         public String getType() {
             return type;
@@ -317,6 +336,14 @@ public class CommunityReportResource extends BaseResource {
 
         public void setLongitude(double longitude) {
             this.longitude = longitude;
+        }
+
+        public Integer getRadarSpeedLimit() {
+            return radarSpeedLimit;
+        }
+
+        public void setRadarSpeedLimit(Integer radarSpeedLimit) {
+            this.radarSpeedLimit = radarSpeedLimit;
         }
     }
 

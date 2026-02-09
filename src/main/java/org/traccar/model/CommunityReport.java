@@ -71,6 +71,16 @@ public class CommunityReport extends BaseModel {
         this.longitude = longitude;
     }
 
+    private Integer radarSpeedLimit;
+
+    public Integer getRadarSpeedLimit() {
+        return radarSpeedLimit;
+    }
+
+    public void setRadarSpeedLimit(Integer radarSpeedLimit) {
+        this.radarSpeedLimit = radarSpeedLimit;
+    }
+
     private long createdByUserId;
 
     public long getCreatedByUserId() {
