@@ -246,6 +246,35 @@ public class CommunityReportAdminResource extends BaseResource {
         return report;
     }
 
+    @Path("{id}/deactivate")
+    @POST
+    public CommunityReport deactivate(@PathParam("id") long id) throws StorageException {
+        permissionsService.checkAdmin(getUserId());
+
+        CommunityReport report = getRequiredReport(id);
+        if (!CommunityReport.STATUS_APPROVED_PUBLIC.equals(report.getStatus())) {
+            throw new IllegalArgumentException("REPORT_NOT_ACTIVE");
+        }
+
+        Date now = new Date();
+        report.setStatus(CommunityReport.STATUS_REJECTED);
+        report.setRejectedAt(now);
+        report.setRejectedByUserId(getUserId());
+        report.setApprovedAt(null);
+        report.setApprovedByUserId(0);
+        report.setUpdatedAt(now);
+        report.setExpiresAt(null);
+
+        storage.updateObject(report, new Request(
+                new Columns.Include(
+                        "status", "rejectedAt", "rejectedByUserId", "approvedAt",
+                        "approvedByUserId", "updatedAt", "expiresAt"),
+                new Condition.Equals("id", id)));
+
+        fillAuthorNames(List.of(report));
+        return report;
+    }
+
     public static class CountResponse {
         private int count;
 
