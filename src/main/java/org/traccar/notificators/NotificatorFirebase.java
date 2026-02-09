@@ -52,6 +52,7 @@ import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.LinkedList;
 import java.util.List;
+import java.util.stream.Collectors;
 
 @Singleton
 public class NotificatorFirebase extends Notificator {
@@ -86,7 +87,12 @@ public class NotificatorFirebase extends Notificator {
         if (user.hasAttribute("notificationTokens")) {
 
             List<String> registrationTokens = new ArrayList<>(
-                    Arrays.asList(user.getString("notificationTokens").split("[, ]")));
+                    Arrays.stream(user.getString("notificationTokens").split("[, ]"))
+                            .filter(token -> token != null && !token.isBlank())
+                            .collect(Collectors.toList()));
+            if (registrationTokens.isEmpty()) {
+                return;
+            }
 
             var androidConfig = AndroidConfig.builder()
                     .setNotification(AndroidNotification.builder().setSound("default").build());
@@ -108,6 +114,9 @@ public class NotificatorFirebase extends Notificator {
                     .setApnsConfig(apnsConfig.build())
                     .addAllTokens(registrationTokens);
 
+            if (!message.data().isEmpty()) {
+                messageBuilder.putAllData(message.data());
+            }
             if (event != null) {
                 messageBuilder.putData("eventId", String.valueOf(event.getId()));
             }
@@ -115,6 +124,7 @@ public class NotificatorFirebase extends Notificator {
             try {
                 var result = firebaseMessaging.sendEachForMulticast(messageBuilder.build());
                 List<String> failedTokens = new LinkedList<>();
+                boolean hasRetriableErrors = false;
                 var iterator = result.getResponses().listIterator();
                 while (iterator.hasNext()) {
                     int index = iterator.nextIndex();
@@ -123,6 +133,8 @@ public class NotificatorFirebase extends Notificator {
                         MessagingErrorCode error = response.getException().getMessagingErrorCode();
                         if (error == MessagingErrorCode.INVALID_ARGUMENT || error == MessagingErrorCode.UNREGISTERED) {
                             failedTokens.add(registrationTokens.get(index));
+                        } else {
+                            hasRetriableErrors = true;
                         }
                         LOGGER.warn("Firebase user {} error", user.getId(), response.getException());
                     }
@@ -139,8 +151,12 @@ public class NotificatorFirebase extends Notificator {
                             new Condition.Equals("id", user.getId())));
                     cacheManager.invalidateObject(true, User.class, user.getId(), ObjectOperation.UPDATE);
                 }
+                if (hasRetriableErrors) {
+                    throw new MessageException("Firebase temporary delivery error");
+                }
             } catch (Exception e) {
                 LOGGER.warn("Firebase error", e);
+                throw new MessageException("Firebase delivery failed", e);
             }
         }
     }

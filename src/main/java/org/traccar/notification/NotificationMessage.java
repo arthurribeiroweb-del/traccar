@@ -16,10 +16,20 @@
  */
 package org.traccar.notification;
 
-public record NotificationMessage(String subject, String digest, String body, boolean priority) {
+import java.util.Map;
+
+public record NotificationMessage(String subject, String digest, String body, boolean priority, Map<String, String> data) {
+
+    public NotificationMessage(String subject, String digest, String body, boolean priority) {
+        this(subject, digest, body, priority, Map.of());
+    }
+
     public NotificationMessage {
         if (digest == null) {
             digest = body;
+        }
+        if (data == null) {
+            data = Map.of();
         }
     }
 }

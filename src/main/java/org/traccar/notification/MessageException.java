@@ -26,4 +26,8 @@ public class MessageException extends Exception {
         super(message);
     }
 
+    public MessageException(String message, Throwable cause) {
+        super(message, cause);
+    }
+
 }

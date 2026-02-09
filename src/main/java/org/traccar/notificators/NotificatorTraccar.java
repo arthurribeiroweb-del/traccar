@@ -24,6 +24,7 @@ import org.traccar.config.Keys;
 import org.traccar.model.Event;
 import org.traccar.model.Position;
 import org.traccar.model.User;
+import org.traccar.notification.MessageException;
 import org.traccar.notification.NotificationFormatter;
 import org.traccar.notification.NotificationMessage;
 import org.traccar.session.cache.CacheManager;
@@ -42,6 +43,8 @@ import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.LinkedList;
 import java.util.List;
+import java.util.Map;
+import java.util.stream.Collectors;
 
 @Singleton
 public class NotificatorTraccar extends Notificator {
@@ -71,6 +74,8 @@ public class NotificatorTraccar extends Notificator {
         private String[] tokens;
         @JsonProperty("notification")
         private NotificationObject notification;
+        @JsonProperty("data")
+        private Map<String, String> data;
     }
 
     @Inject
@@ -86,7 +91,7 @@ public class NotificatorTraccar extends Notificator {
     }
 
     @Override
-    public void send(User user, NotificationMessage shortMessage, Event event, Position position) {
+    public void send(User user, NotificationMessage shortMessage, Event event, Position position) throws MessageException {
         if (user.hasAttribute("notificationTokens")) {
 
             NotificationObject item = new NotificationObject();
@@ -94,18 +99,28 @@ public class NotificatorTraccar extends Notificator {
             item.body = shortMessage.digest();
             item.sound = "default";
 
-            String[] tokenArray = user.getString("notificationTokens").split("[, ]");
-            List<String> registrationTokens = new ArrayList<>(Arrays.asList(tokenArray));
+            List<String> registrationTokens = new ArrayList<>(
+                    Arrays.stream(user.getString("notificationTokens").split("[, ]"))
+                            .filter(token -> token != null && !token.isBlank())
+                            .collect(Collectors.toList()));
+            if (registrationTokens.isEmpty()) {
+                return;
+            }
 
             Message message = new Message();
             message.type = "manager";
-            message.tokens = user.getString("notificationTokens").split("[, ]");
+            message.tokens = registrationTokens.toArray(new String[0]);
             message.notification = item;
+            message.data = new java.util.HashMap<>(shortMessage.data());
+            if (event != null) {
+                message.data.put("eventId", String.valueOf(event.getId()));
+            }
 
             var request = client.target(url).request().header("Authorization", "key=" + key);
             try (Response result = request.post(Entity.json(message))) {
                 var json = result.readEntity(JsonObject.class);
                 List<String> failedTokens = new LinkedList<>();
+                boolean hasRetriableErrors = false;
                 var responses = json.getJsonArray("responses");
                 for (int i = 0; i < responses.size(); i++) {
                     var response = responses.getJsonObject(i);
@@ -115,6 +130,8 @@ public class NotificatorTraccar extends Notificator {
                         if (errorCode.equals("messaging/invalid-argument")
                                 || errorCode.equals("messaging/registration-token-not-registered")) {
                             failedTokens.add(registrationTokens.get(i));
+                        } else {
+                            hasRetriableErrors = true;
                         }
                         LOGGER.warn("Push user {} error - {}", user.getId(), error.getString("message"));
                     }
@@ -131,8 +148,12 @@ public class NotificatorTraccar extends Notificator {
                             new Condition.Equals("id", user.getId())));
                     cacheManager.invalidateObject(true, User.class, user.getId(), ObjectOperation.UPDATE);
                 }
+                if (hasRetriableErrors) {
+                    throw new MessageException("Traccar push temporary delivery error");
+                }
             } catch (Exception e) {
                 LOGGER.warn("Notification push error", e);
+                throw new MessageException("Traccar push delivery failed", e);
             }
         }
     }
