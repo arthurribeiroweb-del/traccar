@@ -66,6 +66,15 @@ public class CommunityReportAdminResource extends BaseResource {
         return new Date(approvedAt.getTime() + (days * 24L * 60L * 60L * 1000L));
     }
 
+    private static boolean isValidCoordinate(double latitude, double longitude) {
+        return Double.isFinite(latitude)
+                && Double.isFinite(longitude)
+                && latitude >= -90
+                && latitude <= 90
+                && longitude >= -180
+                && longitude <= 180;
+    }
+
     private CommunityReport getRequiredReport(long id) throws StorageException {
         CommunityReport report = storage.getObject(CommunityReport.class, new Request(
                 new Columns.All(),
@@ -148,7 +157,9 @@ public class CommunityReportAdminResource extends BaseResource {
 
     @Path("{id}/approve")
     @POST
-    public CommunityReport approve(@PathParam("id") long id) throws StorageException {
+    public CommunityReport approve(
+            @PathParam("id") long id,
+            ApproveCommunityReportRequest request) throws StorageException {
         permissionsService.checkAdmin(getUserId());
 
         CommunityReport report = getRequiredReport(id);
@@ -156,7 +167,21 @@ public class CommunityReportAdminResource extends BaseResource {
             throw new IllegalArgumentException("REPORT_NOT_PENDING");
         }
 
+        boolean hasCoordinateOverride = request != null
+                && request.getLatitude() != null
+                && request.getLongitude() != null;
+        if (request != null && (request.getLatitude() == null ^ request.getLongitude() == null)) {
+            throw new IllegalArgumentException("INVALID_COORDINATES");
+        }
+        if (hasCoordinateOverride && !isValidCoordinate(request.getLatitude(), request.getLongitude())) {
+            throw new IllegalArgumentException("INVALID_COORDINATES");
+        }
+
         Date now = new Date();
+        if (hasCoordinateOverride) {
+            report.setLatitude(request.getLatitude());
+            report.setLongitude(request.getLongitude());
+        }
         report.setStatus(CommunityReport.STATUS_APPROVED_PUBLIC);
         report.setApprovedAt(now);
         report.setApprovedByUserId(getUserId());
@@ -167,7 +192,7 @@ public class CommunityReportAdminResource extends BaseResource {
 
         storage.updateObject(report, new Request(
                 new Columns.Include(
-                        "status", "approvedAt", "approvedByUserId", "rejectedAt",
+                        "latitude", "longitude", "status", "approvedAt", "approvedByUserId", "rejectedAt",
                         "rejectedByUserId", "updatedAt", "expiresAt"),
                 new Condition.Equals("id", id)));
 
@@ -220,6 +245,27 @@ public class CommunityReportAdminResource extends BaseResource {
 
         public void setCount(int count) {
             this.count = count;
+        }
+    }
+
+    public static class ApproveCommunityReportRequest {
+        private Double latitude;
+        private Double longitude;
+
+        public Double getLatitude() {
+            return latitude;
+        }
+
+        public void setLatitude(Double latitude) {
+            this.latitude = latitude;
+        }
+
+        public Double getLongitude() {
+            return longitude;
+        }
+
+        public void setLongitude(Double longitude) {
+            this.longitude = longitude;
         }
     }
 
