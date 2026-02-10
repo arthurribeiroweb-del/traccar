@@ -30,6 +30,7 @@ import org.traccar.model.Device;
 import org.traccar.model.Event;
 import org.traccar.model.Geofence;
 import org.traccar.model.Position;
+import org.traccar.radar.StaticRadarManager;
 import org.traccar.session.cache.CacheManager;
 import org.traccar.session.state.OverspeedProcessor;
 import org.traccar.session.state.OverspeedState;
@@ -47,11 +48,13 @@ public class OverspeedEventHandler extends BaseEventHandler {
     private static final String ATTRIBUTE_RADAR_SPEED_LIMIT_KPH = "radarSpeedLimitKph";
     private static final String ATTRIBUTE_RADAR_ID = "radarId";
     private static final String ATTRIBUTE_RADAR_NAME = "radarName";
+    private static final String ATTRIBUTE_RADAR_SOURCE = "radarSource";
     private static final String ATTRIBUTE_LIMIT_KPH = "limitKph";
     private static final String ATTRIBUTE_SPEED_KPH = "speedKph";
 
     private final CacheManager cacheManager;
     private final Storage storage;
+    private final StaticRadarManager staticRadarManager;
 
     private final long minimalDuration;
     private final boolean preferLowest;
@@ -66,9 +69,11 @@ public class OverspeedEventHandler extends BaseEventHandler {
     }
 
     @Inject
-    public OverspeedEventHandler(Config config, CacheManager cacheManager, Storage storage) {
+    public OverspeedEventHandler(
+            Config config, CacheManager cacheManager, Storage storage, StaticRadarManager staticRadarManager) {
         this.cacheManager = cacheManager;
         this.storage = storage;
+        this.staticRadarManager = staticRadarManager;
         minimalDuration = config.getLong(Keys.EVENT_OVERSPEED_MINIMAL_DURATION) * 1000;
         preferLowest = config.getBoolean(Keys.EVENT_OVERSPEED_PREFER_LOWEST);
         multiplier = config.getDouble(Keys.EVENT_OVERSPEED_THRESHOLD_MULTIPLIER);
@@ -134,12 +139,12 @@ public class OverspeedEventHandler extends BaseEventHandler {
         return radarSelection.speedLimitKnots > 0 ? radarSelection : regularSelection;
     }
 
-    private boolean inRadarCooldown(long deviceId, long geofenceId) {
+    private boolean inRadarCooldown(long deviceId, String radarKey) {
         if (radarCooldown <= 0) {
             return false;
         }
         long now = System.currentTimeMillis();
-        String key = deviceId + ":" + geofenceId;
+        String key = deviceId + ":" + radarKey;
         Long previous = radarCooldowns.putIfAbsent(key, now);
         if (previous == null) {
             return false;
@@ -168,6 +173,17 @@ public class OverspeedEventHandler extends BaseEventHandler {
         }
 
         double speedKnots = event.getDouble(OverspeedProcessor.ATTRIBUTE_SPEED);
+        if (speedKnots > 0) {
+            event.set(ATTRIBUTE_SPEED_KPH, UnitsConverter.kphFromKnots(speedKnots));
+        }
+    }
+
+    private void appendStaticRadarAttributes(Event event, StaticRadarManager.RadarMatch radarMatch, double speedKnots) {
+        event.set(ATTRIBUTE_RADAR_ID, radarMatch.radarId());
+        event.set(ATTRIBUTE_RADAR_NAME, radarMatch.radarName());
+        event.set(ATTRIBUTE_RADAR_SOURCE, "staticCatalog");
+        event.set(ATTRIBUTE_RADAR_SPEED_LIMIT_KPH, radarMatch.speedLimitKph());
+        event.set(ATTRIBUTE_LIMIT_KPH, radarMatch.speedLimitKph());
         if (speedKnots > 0) {
             event.set(ATTRIBUTE_SPEED_KPH, UnitsConverter.kphFromKnots(speedKnots));
         }
@@ -205,22 +221,36 @@ public class OverspeedEventHandler extends BaseEventHandler {
             speedLimit = geofenceSelection.speedLimitKnots;
         }
 
-        if (speedLimit == 0) {
-            return;
-        }
-
         Geofence selectedGeofence = geofenceSelection.geofenceId != 0
                 ? cacheManager.getObject(Geofence.class, geofenceSelection.geofenceId) : null;
 
         if (isRadarEnabled(selectedGeofence)) {
             if (position.getSpeed() > speedLimit * multiplier) {
-                if (inRadarCooldown(deviceId, geofenceSelection.geofenceId)) {
+                if (inRadarCooldown(deviceId, "geofence:" + geofenceSelection.geofenceId)) {
                     return;
                 }
                 Event event = createOverspeedEvent(position, speedLimit, geofenceSelection.geofenceId);
                 appendRadarAttributes(event, selectedGeofence);
                 callback.eventDetected(event);
             }
+            return;
+        }
+
+        StaticRadarManager.RadarMatch staticRadarMatch = staticRadarManager.match(position);
+        if (staticRadarMatch != null) {
+            double staticSpeedLimitKnots = UnitsConverter.knotsFromKph(staticRadarMatch.speedLimitKph());
+            if (position.getSpeed() > staticSpeedLimitKnots * multiplier) {
+                if (inRadarCooldown(deviceId, "static:" + staticRadarMatch.radarId())) {
+                    return;
+                }
+                Event event = createOverspeedEvent(position, staticSpeedLimitKnots, 0);
+                appendStaticRadarAttributes(event, staticRadarMatch, position.getSpeed());
+                callback.eventDetected(event);
+            }
+            return;
+        }
+
+        if (speedLimit == 0) {
             return;
         }
 
@@ -242,7 +272,7 @@ public class OverspeedEventHandler extends BaseEventHandler {
             if (event.getGeofenceId() != 0) {
                 Geofence geofence = cacheManager.getObject(Geofence.class, event.getGeofenceId());
                 if (isRadarEnabled(geofence)) {
-                    if (inRadarCooldown(deviceId, event.getGeofenceId())) {
+                    if (inRadarCooldown(deviceId, "geofence:" + event.getGeofenceId())) {
                         return;
                     }
                     appendRadarAttributes(event, geofence);

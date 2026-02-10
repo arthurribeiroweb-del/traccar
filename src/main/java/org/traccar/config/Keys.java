@@ -427,6 +427,54 @@ public final class Keys {
             60L);
 
     /**
+     * Enable static radar catalog detection for overspeed events.
+     */
+    public static final ConfigKey<Boolean> EVENT_STATIC_RADAR_ENABLED = new BooleanConfigKey(
+            "event.staticRadar.enabled",
+            List.of(KeyType.CONFIG),
+            true);
+
+    /**
+     * Optional custom path to static radar GeoJSON file.
+     */
+    public static final ConfigKey<String> EVENT_STATIC_RADAR_FILE = new StringConfigKey(
+            "event.staticRadar.file",
+            List.of(KeyType.CONFIG),
+            "");
+
+    /**
+     * Default radar trigger radius in meters when a radar entry has no explicit radius.
+     */
+    public static final ConfigKey<Double> EVENT_STATIC_RADAR_RADIUS_METERS = new DoubleConfigKey(
+            "event.staticRadar.radius",
+            List.of(KeyType.CONFIG),
+            30.0);
+
+    /**
+     * Reload interval for static radar catalog file in seconds.
+     */
+    public static final ConfigKey<Long> EVENT_STATIC_RADAR_RELOAD_INTERVAL = new LongConfigKey(
+            "event.staticRadar.reloadInterval",
+            List.of(KeyType.CONFIG),
+            300L);
+
+    /**
+     * Minimum static radar speed limit (km/h) considered for detection.
+     */
+    public static final ConfigKey<Double> EVENT_STATIC_RADAR_MIN_SPEED_KPH = new DoubleConfigKey(
+            "event.staticRadar.minSpeedKph",
+            List.of(KeyType.CONFIG),
+            20.0);
+
+    /**
+     * Maximum static radar speed limit (km/h) considered for detection.
+     */
+    public static final ConfigKey<Double> EVENT_STATIC_RADAR_MAX_SPEED_KPH = new DoubleConfigKey(
+            "event.staticRadar.maxSpeedKph",
+            List.of(KeyType.CONFIG),
+            120.0);
+
+    /**
      * Driver behavior acceleration threshold. Value is in meter per second squared.
      */
     public static final ConfigKey<Double> EVENT_BEHAVIOR_ACCELERATION_THRESHOLD = new DoubleConfigKey(
