@@ -15,6 +15,7 @@
  */
 package org.traccar.radar;
 
+import com.fasterxml.jackson.core.type.TypeReference;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import jakarta.inject.Inject;
@@ -30,7 +31,9 @@ import java.io.IOException;
 import java.io.InputStream;
 import java.nio.file.Files;
 import java.nio.file.Path;
+import java.nio.file.StandardCopyOption;
 import java.util.ArrayList;
+import java.util.Collections;
 import java.util.HashMap;
 import java.util.LinkedHashSet;
 import java.util.List;
@@ -53,10 +56,13 @@ public class StaticRadarManager {
     private final double minSpeedKph;
     private final double maxSpeedKph;
     private final long reloadIntervalMs;
+    private final Path overridePath;
 
     private volatile RadarIndex radarIndex = RadarIndex.empty();
     private volatile Path sourcePath;
     private volatile long sourceModifiedAt = Long.MIN_VALUE;
+    private volatile long overrideModifiedAt = Long.MIN_VALUE;
+    private volatile Map<String, Double> radiusOverrides = Map.of();
     private volatile long lastReloadCheck = 0;
     private volatile boolean warnedMissing;
 
@@ -87,6 +93,8 @@ public class StaticRadarManager {
         minSpeedKph = Math.max(0, config.getDouble(Keys.EVENT_STATIC_RADAR_MIN_SPEED_KPH));
         maxSpeedKph = Math.max(minSpeedKph, config.getDouble(Keys.EVENT_STATIC_RADAR_MAX_SPEED_KPH));
         reloadIntervalMs = Math.max(10_000, config.getLong(Keys.EVENT_STATIC_RADAR_RELOAD_INTERVAL) * 1000L);
+        String overrideFile = config.getString(Keys.EVENT_STATIC_RADAR_OVERRIDE_FILE);
+        overridePath = overrideFile != null && !overrideFile.isBlank() ? Path.of(overrideFile.trim()) : null;
     }
 
     public RadarMatch match(Position position) {
@@ -137,6 +145,35 @@ public class StaticRadarManager {
         return new RadarMatch(bestEntry.radarId(), bestEntry.radarName(), bestEntry.speedLimitKph());
     }
 
+    public synchronized Map<String, Double> getRadiusOverrides() {
+        reloadOverridesIfNeeded();
+        return Map.copyOf(radiusOverrides);
+    }
+
+    public synchronized double setRadiusOverride(String externalId, double radiusMeters) throws IOException {
+        String normalizedExternalId = externalId != null ? externalId.trim() : "";
+        if (normalizedExternalId.isEmpty()) {
+            throw new IllegalArgumentException("INVALID_EXTERNAL_ID");
+        }
+        if (!Double.isFinite(radiusMeters) || radiusMeters <= 0) {
+            throw new IllegalArgumentException("INVALID_RADIUS");
+        }
+        if (overridePath == null) {
+            throw new IllegalStateException("STATIC_RADAR_OVERRIDE_FILE_DISABLED");
+        }
+
+        reloadOverridesIfNeeded();
+        Map<String, Double> updated = new HashMap<>(radiusOverrides);
+        updated.put(normalizedExternalId, radiusMeters);
+        writeOverrides(updated);
+
+        radiusOverrides = Collections.unmodifiableMap(updated);
+        overrideModifiedAt = Files.getLastModifiedTime(overridePath).toMillis();
+        lastReloadCheck = 0;
+        sourceModifiedAt = Long.MIN_VALUE;
+        return radiusMeters;
+    }
+
     private synchronized void reloadIfNeeded() {
         if (!enabled) {
             return;
@@ -147,6 +184,9 @@ public class StaticRadarManager {
             return;
         }
         lastReloadCheck = now;
+        long previousOverrideModifiedAt = overrideModifiedAt;
+        reloadOverridesIfNeeded();
+        boolean overridesChanged = previousOverrideModifiedAt != overrideModifiedAt;
 
         for (Path candidate : resolveCandidatePaths()) {
             if (!Files.isRegularFile(candidate)) {
@@ -154,18 +194,25 @@ public class StaticRadarManager {
             }
 
             try {
-                long modifiedAt = Files.getLastModifiedTime(candidate).toMillis();
-                if (candidate.equals(sourcePath) && modifiedAt == sourceModifiedAt && radarIndex.count() > 0) {
+                long sourceModified = Files.getLastModifiedTime(candidate).toMillis();
+                if (candidate.equals(sourcePath)
+                        && sourceModified == sourceModifiedAt
+                        && radarIndex.count() > 0
+                        && !overridesChanged) {
                     return;
                 }
 
-                RadarIndex loadedIndex = loadIndex(candidate);
+                RadarIndex loadedIndex = loadIndex(candidate, radiusOverrides);
                 radarIndex = loadedIndex;
                 sourcePath = candidate;
-                sourceModifiedAt = modifiedAt;
+                sourceModifiedAt = sourceModified;
                 warnedMissing = false;
 
-                LOGGER.info("Loaded {} static radars from {}", loadedIndex.count(), candidate.toAbsolutePath());
+                LOGGER.info(
+                        "Loaded {} static radars from {} (overrides: {})",
+                        loadedIndex.count(),
+                        candidate.toAbsolutePath(),
+                        radiusOverrides.size());
                 return;
             } catch (IOException error) {
                 LOGGER.warn("Failed to load static radar catalog from {}", candidate.toAbsolutePath(), error);
@@ -183,7 +230,7 @@ public class StaticRadarManager {
         sourceModifiedAt = Long.MIN_VALUE;
     }
 
-    private RadarIndex loadIndex(Path file) throws IOException {
+    private RadarIndex loadIndex(Path file, Map<String, Double> overrides) throws IOException {
         JsonNode root;
         try (InputStream inputStream = Files.newInputStream(file)) {
             root = objectMapper.readTree(inputStream);
@@ -232,6 +279,11 @@ public class StaticRadarManager {
             }
 
             String externalId = textOrEmpty(properties.get("externalId"));
+            Double overrideRadius = externalId.isEmpty() ? null : overrides.get(externalId);
+            if (overrideRadius != null && Double.isFinite(overrideRadius) && overrideRadius > 0) {
+                radiusMeters = overrideRadius;
+            }
+
             long radarId = parseRadarId(externalId, syntheticRadarId);
             if (radarId == syntheticRadarId) {
                 syntheticRadarId--;
@@ -255,6 +307,60 @@ public class StaticRadarManager {
         int latitudeCellRange = Math.max(1, (int) Math.ceil(
                 DistanceCalculator.getLatitudeDelta(maxRadiusMeters) / GRID_CELL_DEGREES));
         return new RadarIndex(buckets, latitudeCellRange, maxRadiusMeters, count);
+    }
+
+    private void reloadOverridesIfNeeded() {
+        if (overridePath == null) {
+            radiusOverrides = Map.of();
+            overrideModifiedAt = Long.MIN_VALUE;
+            return;
+        }
+        if (!Files.isRegularFile(overridePath)) {
+            radiusOverrides = Map.of();
+            overrideModifiedAt = Long.MIN_VALUE;
+            return;
+        }
+        try {
+            long modified = Files.getLastModifiedTime(overridePath).toMillis();
+            if (modified == overrideModifiedAt) {
+                return;
+            }
+
+            Map<String, Double> loaded = objectMapper.readValue(
+                    overridePath.toFile(), new TypeReference<Map<String, Double>>() {
+            });
+            Map<String, Double> sanitized = new HashMap<>();
+            if (loaded != null) {
+                for (Map.Entry<String, Double> entry : loaded.entrySet()) {
+                    String key = entry.getKey() != null ? entry.getKey().trim() : "";
+                    Double value = entry.getValue();
+                    if (!key.isEmpty() && value != null && Double.isFinite(value) && value > 0) {
+                        sanitized.put(key, value);
+                    }
+                }
+            }
+            radiusOverrides = Collections.unmodifiableMap(sanitized);
+            overrideModifiedAt = modified;
+            LOGGER.info("Loaded {} static radar radius overrides from {}", sanitized.size(), overridePath.toAbsolutePath());
+        } catch (IOException error) {
+            LOGGER.warn("Failed to load static radar radius overrides from {}", overridePath.toAbsolutePath(), error);
+        }
+    }
+
+    private void writeOverrides(Map<String, Double> overrides) throws IOException {
+        Path absolutePath = overridePath.toAbsolutePath();
+        Path parent = absolutePath.getParent();
+        if (parent != null) {
+            Files.createDirectories(parent);
+        }
+
+        Path tempPath = absolutePath.resolveSibling(absolutePath.getFileName() + ".tmp");
+        objectMapper.writerWithDefaultPrettyPrinter().writeValue(tempPath.toFile(), overrides);
+        try {
+            Files.move(tempPath, absolutePath, StandardCopyOption.REPLACE_EXISTING, StandardCopyOption.ATOMIC_MOVE);
+        } catch (IOException error) {
+            Files.move(tempPath, absolutePath, StandardCopyOption.REPLACE_EXISTING);
+        }
     }
 
     private List<Path> resolveCandidatePaths() {
@@ -334,4 +440,3 @@ public class StaticRadarManager {
         return Math.max(1, (int) Math.ceil(deltaDegrees / GRID_CELL_DEGREES));
     }
 }
-

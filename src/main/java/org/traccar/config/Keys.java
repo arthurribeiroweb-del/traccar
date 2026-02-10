@@ -443,6 +443,14 @@ public final class Keys {
             "");
 
     /**
+     * Optional path to static radar radius overrides file (JSON object keyed by externalId).
+     */
+    public static final ConfigKey<String> EVENT_STATIC_RADAR_OVERRIDE_FILE = new StringConfigKey(
+            "event.staticRadar.overrideFile",
+            List.of(KeyType.CONFIG),
+            "conf/static-radar-overrides.json");
+
+    /**
      * Default radar trigger radius in meters when a radar entry has no explicit radius.
      */
     public static final ConfigKey<Double> EVENT_STATIC_RADAR_RADIUS_METERS = new DoubleConfigKey(
