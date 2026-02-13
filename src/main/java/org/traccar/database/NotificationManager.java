@@ -151,6 +151,9 @@ public class NotificationManager {
         if (eventType.equals(Event.TYPE_DEVICE_OVERSPEED) && LEGACY_TYPE_OVERSPEED.equals(notificationType)) {
             return true;
         }
+        if (eventType.equals(Event.TYPE_OIL_CHANGE_DUE) && Event.TYPE_MAINTENANCE.equals(notificationType)) {
+            return true;
+        }
         return eventType.equals(notificationType);
     }
 

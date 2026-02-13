@@ -1,0 +1,17 @@
+#set($subject = "$device.name: oil change required")
+#set($digest = "Oil change required on $device.name at $dateTool.format('yyyy-MM-dd HH:mm:ss', $event.eventTime, $locale, $timezone)")
+<!DOCTYPE html>
+<html>
+<body>
+Device: $device.name<br>
+Oil change required<br>
+#if($event.attributes.oilReason)Reason: $event.attributes.oilReason<br>#end
+#if($event.attributes.oilDueKm)Expected at: $event.attributes.oilDueKm km<br>#end
+#if($event.attributes.oilCurrentKm)Current: $event.attributes.oilCurrentKm km<br>#end
+#if($event.attributes.oilDueDate)Expected date: $event.attributes.oilDueDate<br>#end
+Time: $dateTool.format('yyyy-MM-dd HH:mm:ss', $event.eventTime, $locale, $timezone)<br>
+Location: <a href="$webUrl/event/$event.id">#{if}($position.address)$position.address#{else}$position.latitude&deg;, $position.longitude&deg;#{end}</a><br>
+<br>
+<a href="$webUrl/settings/notifications?token=$token">Unsubscribe</a>
+</body>
+</html>
