@@ -68,25 +68,19 @@ public class CommunityReportResource extends BaseResource {
             CommunityReportVote.VOTE_GONE);
 
     private static final int MAX_REPORTS_PER_DAY = 10;
-    private static final long COOLDOWN_MILLIS = 30_000;
+    private static final long COOLDOWN_MILLIS = 0;
     private static final long CANCEL_WINDOW_MILLIS = 120_000;
     private static final long VOTE_COOLDOWN_MILLIS = 7L * 24 * 60 * 60 * 1000;
     private static final double EARTH_METERS_PER_DEGREE = 111_320.0;
     private static final int MIN_RADAR_SPEED_LIMIT_KPH = 20;
     private static final int MAX_RADAR_SPEED_LIMIT_KPH = 120;
+    private static final double DUPLICATE_RADIUS_METERS = 5.0;
 
     @Inject
     private CommunityRadarGeofenceManager communityRadarGeofenceManager;
 
     private static double radiusByType(String type) {
-        return switch (type) {
-            case CommunityReport.TYPE_RADAR -> 80.0;
-            case CommunityReport.TYPE_BURACO -> 40.0;
-            case CommunityReport.TYPE_QUEBRA_MOLAS -> 60.0;
-            case CommunityReport.TYPE_FAIXA_PEDESTRE -> 60.0;
-            case CommunityReport.TYPE_SINAL_TRANSITO -> 60.0;
-            default -> 0.0;
-        };
+        return DUPLICATE_RADIUS_METERS;
     }
 
     private static String normalizeType(String type) {
@@ -175,6 +169,9 @@ public class CommunityReportResource extends BaseResource {
     }
 
     private void ensureCooldown(long userId, Date now) throws StorageException {
+        if (COOLDOWN_MILLIS <= 0) {
+            return;
+        }
         Condition activeStatusCondition = new Condition.Or(
                 new Condition.Equals("status", CommunityReport.STATUS_PENDING_PRIVATE),
                 new Condition.Equals("status", CommunityReport.STATUS_APPROVED_PUBLIC));
