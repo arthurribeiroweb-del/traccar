@@ -1,17 +1,13 @@
-#set($subject = "$device.name: troca de oleo necessaria")
+#set($subject = "🚗 $device.name: troca de oleo necessaria")
 #set($digest = "Troca de oleo necessaria em $device.name as $dateTool.format('yyyy-MM-dd HH:mm:ss', $event.eventTime, $locale, $timezone)")
 <!DOCTYPE html>
 <html>
 <body>
-Dispositivo: $device.name<br>
-Troca de oleo necessaria<br>
-#if($event.attributes.oilReason)Motivo: $event.attributes.oilReason<br>#end
-#if($event.attributes.oilDueKm)Km previsto: $event.attributes.oilDueKm km<br>#end
-#if($event.attributes.oilCurrentKm)Km atual: $event.attributes.oilCurrentKm km<br>#end
-#if($event.attributes.oilDueDate)Data prevista: $event.attributes.oilDueDate<br>#end
-Hora: $dateTool.format('yyyy-MM-dd HH:mm:ss', $event.eventTime, $locale, $timezone)<br>
-Local: <a href="$webUrl/event/$event.id">#{if}($position.address)$position.address#{else}$position.latitude&deg;, $position.longitude&deg;#{end}</a><br>
-<br>
-<a href="$webUrl/settings/notifications?token=$token">Cancelar inscricao</a>
+<strong>🚗 $device.name</strong><br>
+🔴 Troca de oleo necessaria<br>
+#if($event.attributes.oilDueKm)🎯 Prevista: $event.attributes.oilDueKm km#{if($event.attributes.oilDueDate)} ou $event.attributes.oilDueDate#{end}<br>#end
+#if($event.attributes.oilCurrentKm)📍 Km atual: $event.attributes.oilCurrentKm km<br>#end
+👉 <a href="$webUrl/event/$event.id">Abrir detalhe</a><br>
+<small><a href="$webUrl/settings/notifications?token=$token">Cancelar inscricao</a></small>
 </body>
 </html>
