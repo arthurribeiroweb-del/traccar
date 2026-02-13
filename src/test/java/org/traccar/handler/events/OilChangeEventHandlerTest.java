@@ -126,6 +126,42 @@ public class OilChangeEventHandlerTest extends BaseTest {
         assertTrue(events.isEmpty());
     }
 
+    @Test
+    public void testOilChangeSoonByKm() {
+        Position lastPosition = new Position();
+        lastPosition.setDeviceId(1);
+        lastPosition.setFixTime(new Date(1735689600000L)); // 2025-01-01T00:00:00Z
+        lastPosition.set(Position.KEY_ODOMETER, 10951000.0);
+
+        Position position = new Position();
+        position.setDeviceId(1);
+        position.setFixTime(new Date(1735776000000L)); // 2025-01-02T00:00:00Z
+        position.set(Position.KEY_ODOMETER, 10950000.0);
+
+        Device device = new Device();
+        device.setId(1);
+        device.setAttributes(oilAttributes(
+                true,
+                10000,
+                10000,
+                "2025-01-01T00:00:00Z",
+                1000,
+                6));
+
+        CacheManager cacheManager = mock(CacheManager.class);
+        when(cacheManager.getPosition(anyLong())).thenReturn(lastPosition);
+        when(cacheManager.getObject(eq(Device.class), anyLong())).thenReturn(device);
+
+        OilChangeEventHandler eventHandler = new OilChangeEventHandler(cacheManager);
+        List<Event> events = new ArrayList<>();
+
+        eventHandler.analyzePosition(position, events::add);
+
+        assertEquals(1, events.size());
+        assertEquals(Event.TYPE_OIL_CHANGE_SOON, events.get(0).getType());
+        assertEquals("km", events.get(0).getString("oilReason"));
+    }
+
     private static Map<String, Object> oilAttributes(
             boolean enabled,
             long odometerCurrent,

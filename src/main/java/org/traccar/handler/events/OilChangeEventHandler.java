@@ -16,6 +16,8 @@
 package org.traccar.handler.events;
 
 import jakarta.inject.Inject;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 import org.traccar.model.Device;
 import org.traccar.model.Event;
 import org.traccar.model.Position;
@@ -30,6 +32,8 @@ import java.util.Map;
 
 public class OilChangeEventHandler extends BaseEventHandler {
 
+    private static final Logger LOGGER = LoggerFactory.getLogger(OilChangeEventHandler.class);
+
     private static final String ATTRIBUTE_MAINTENANCE = "maintenance";
     private static final String ATTRIBUTE_OIL = "oil";
 
@@ -39,12 +43,20 @@ public class OilChangeEventHandler extends BaseEventHandler {
     private static final String KEY_LAST_SERVICE_DATE = "lastServiceDate";
     private static final String KEY_INTERVAL_KM = "intervalKm";
     private static final String KEY_INTERVAL_MONTHS = "intervalMonths";
+    private static final String KEY_UPDATED_AT = "updatedAt";
+    private static final String KEY_BASELINE_DISTANCE_KM = "baselineDistanceKm";
+    private static final String KEY_BASELINE_ODOMETER_KM = "baselineOdometerKm";
 
     private static final String ATTR_OIL_REASON = "oilReason";
     private static final String ATTR_OIL_DUE_KM = "oilDueKm";
     private static final String ATTR_OIL_CURRENT_KM = "oilCurrentKm";
     private static final String ATTR_OIL_DUE_DATE = "oilDueDate";
     private static final String ATTR_MAINTENANCE_NAME = "maintenanceName";
+    private static final String ATTR_OIL_KM_REMAINING = "oilKmRemaining";
+    private static final String ATTR_OIL_DAYS_REMAINING = "oilDaysRemaining";
+
+    private static final long PRE_DUE_KM_THRESHOLD = 50;
+    private static final long PRE_DUE_DAYS_THRESHOLD = 7;
 
     private final CacheManager cacheManager;
 
@@ -72,30 +84,77 @@ public class OilChangeEventHandler extends BaseEventHandler {
 
         Long dueKm = config.dueKm();
         Instant dueDate = config.dueDate();
+        Long soonKm = dueKm != null ? Math.max(0L, dueKm - PRE_DUE_KM_THRESHOLD) : null;
+        Instant soonDate = dueDate != null ? dueDate.minusSeconds(PRE_DUE_DAYS_THRESHOLD * 24L * 60L * 60L) : null;
 
-        List<String> reasons = new ArrayList<>();
+        Long oldKm = resolveCurrentKm(config, lastPosition);
         Long currentKm = resolveCurrentKm(config, position);
+        Instant oldTime = resolvePositionTime(lastPosition);
+        Instant newTime = resolvePositionTime(position);
+        if (newTime == null) {
+            return;
+        }
+
+        boolean dueByKm = false;
+        boolean dueByDate = false;
+        boolean soonByKm = false;
+        boolean soonByDate = false;
 
         if (dueKm != null) {
-            Long oldKm = resolveCurrentKm(config, lastPosition);
             if (oldKm != null && currentKm != null && oldKm < dueKm && currentKm >= dueKm) {
-                reasons.add("km");
+                dueByKm = true;
+            } else if (config.updatedAt != null && oldTime != null
+                    && !config.updatedAt.isBefore(oldTime) && currentKm != null && currentKm >= dueKm) {
+                dueByKm = true;
+            } else if (soonKm != null && oldKm != null && currentKm != null
+                    && oldKm > soonKm && currentKm <= soonKm && currentKm < dueKm) {
+                soonByKm = true;
             }
         }
 
         if (dueDate != null) {
-            Instant oldTime = resolvePositionTime(lastPosition);
-            Instant newTime = resolvePositionTime(position);
-            if (oldTime != null && newTime != null && oldTime.isBefore(dueDate) && !newTime.isBefore(dueDate)) {
-                reasons.add("date");
+            if (oldTime != null && oldTime.isBefore(dueDate) && !newTime.isBefore(dueDate)) {
+                dueByDate = true;
+            } else if (config.updatedAt != null && oldTime != null
+                    && !config.updatedAt.isBefore(oldTime) && !newTime.isBefore(dueDate)) {
+                dueByDate = true;
+            } else if (soonDate != null && oldTime != null
+                    && oldTime.isBefore(soonDate) && !newTime.isBefore(soonDate) && newTime.isBefore(dueDate)) {
+                soonByDate = true;
             }
+        }
+
+        if (dueByKm || dueByDate) {
+            emitEvent(callback, position, currentKm, dueKm, dueDate, dueByKm, dueByDate, Event.TYPE_OIL_CHANGE_DUE);
+            logEvaluation(device.getId(), config, dueKm, dueDate, oldKm, currentKm, oldTime, newTime, "due");
+            return;
+        }
+
+        if (soonByKm || soonByDate) {
+            emitEvent(callback, position, currentKm, dueKm, dueDate, soonByKm, soonByDate, Event.TYPE_OIL_CHANGE_SOON);
+            logEvaluation(device.getId(), config, dueKm, dueDate, oldKm, currentKm, oldTime, newTime, "soon");
+            return;
+        }
+
+        logEvaluation(device.getId(), config, dueKm, dueDate, oldKm, currentKm, oldTime, newTime, "none");
+    }
+
+    private static void emitEvent(
+            Callback callback, Position position, Long currentKm, Long dueKm, Instant dueDate,
+            boolean byKm, boolean byDate, String eventType) {
+        List<String> reasons = new ArrayList<>();
+        if (byKm) {
+            reasons.add("km");
+        }
+        if (byDate) {
+            reasons.add("date");
         }
 
         if (reasons.isEmpty()) {
             return;
         }
 
-        Event event = new Event(Event.TYPE_OIL_CHANGE_DUE, position);
+        Event event = new Event(eventType, position);
         event.set(ATTR_OIL_REASON, String.join(",", reasons));
         event.set(ATTR_MAINTENANCE_NAME, "Troca de oleo");
         if (dueKm != null) {
@@ -106,8 +165,32 @@ public class OilChangeEventHandler extends BaseEventHandler {
         }
         if (dueDate != null) {
             event.set(ATTR_OIL_DUE_DATE, dueDate.toString());
+            long daysRemaining = Math.round((dueDate.toEpochMilli() - event.getEventTime().getTime())
+                    / (24d * 60d * 60d * 1000d));
+            event.set(ATTR_OIL_DAYS_REMAINING, daysRemaining);
+        }
+        if (currentKm != null && dueKm != null) {
+            event.set(ATTR_OIL_KM_REMAINING, dueKm - currentKm);
         }
         callback.eventDetected(event);
+    }
+
+    private static void logEvaluation(
+            long deviceId, OilConfig config, Long dueKm, Instant dueDate,
+            Long oldKm, Long currentKm, Instant oldTime, Instant newTime, String decision) {
+        LOGGER.debug(
+                "oil_maintenance_eval deviceId={} dueKm={} dueDate={} oldKm={} currentKm={} oldTime={} newTime={} "
+                        + "intervalKm={} intervalMonths={} decision={}",
+                deviceId,
+                dueKm,
+                dueDate,
+                oldKm,
+                currentKm,
+                oldTime,
+                newTime,
+                config.intervalKm,
+                config.intervalMonths,
+                decision);
     }
 
     private static Instant resolvePositionTime(Position position) {
@@ -126,23 +209,54 @@ public class OilChangeEventHandler extends BaseEventHandler {
     private static Long resolveCurrentKm(OilConfig config, Position position) {
         Long configuredKm = config.odometerCurrentKm;
         Long positionKm = positionOdometerKm(position);
+        Long baselineKm = baselineDerivedOdometerKm(config, positionKm);
+
         if (configuredKm == null) {
-            return positionKm;
+            if (baselineKm == null) {
+                return positionKm;
+            }
+            return positionKm == null ? baselineKm : Math.max(positionKm, baselineKm);
         }
-        if (positionKm == null) {
-            return configuredKm;
+
+        Long result = configuredKm;
+        if (positionKm != null) {
+            result = Math.max(result, positionKm);
         }
-        return Math.max(configuredKm, positionKm);
+        if (baselineKm != null) {
+            result = Math.max(result, baselineKm);
+        }
+        return result;
+    }
+
+    private static Long baselineDerivedOdometerKm(OilConfig config, Long positionKm) {
+        if (positionKm == null || config.baselineDistanceKm == null || config.baselineOdometerKm == null) {
+            return null;
+        }
+        long traveledKm = Math.max(0L, positionKm - config.baselineDistanceKm);
+        return config.baselineOdometerKm + traveledKm;
+    }
+
+    private static Long asKmFromMeters(double meters) {
+        if (!Double.isFinite(meters) || meters <= 0) {
+            return null;
+        }
+        return Math.round(meters / 1000.0);
+    }
+
+    private static Long positionDistanceKm(Position position) {
+        return asKmFromMeters(position.getDouble(Position.KEY_TOTAL_DISTANCE));
     }
 
     private static Long positionOdometerKm(Position position) {
-        double odometerMeters = Math.max(
-                position.getDouble(Position.KEY_ODOMETER),
-                position.getDouble(Position.KEY_TOTAL_DISTANCE));
-        if (!Double.isFinite(odometerMeters) || odometerMeters <= 0) {
-            return null;
+        Long odometerKm = asKmFromMeters(position.getDouble(Position.KEY_ODOMETER));
+        Long totalDistanceKm = positionDistanceKm(position);
+        if (odometerKm == null) {
+            return totalDistanceKm;
         }
-        return Math.round(odometerMeters / 1000.0);
+        if (totalDistanceKm == null) {
+            return odometerKm;
+        }
+        return Math.max(odometerKm, totalDistanceKm);
     }
 
     private record OilConfig(
@@ -151,7 +265,10 @@ public class OilChangeEventHandler extends BaseEventHandler {
             Long lastServiceOdometerKm,
             Instant lastServiceDate,
             Long intervalKm,
-            Integer intervalMonths) {
+            Integer intervalMonths,
+            Instant updatedAt,
+            Long baselineDistanceKm,
+            Long baselineOdometerKm) {
 
         static OilConfig fromDevice(Device device) {
             if (device.getAttributes() == null) {
@@ -172,6 +289,9 @@ public class OilChangeEventHandler extends BaseEventHandler {
             Instant lastServiceDate = asInstant(oilMap.get(KEY_LAST_SERVICE_DATE));
             Long intervalKm = asPositiveLong(oilMap.get(KEY_INTERVAL_KM));
             Integer intervalMonths = asPositiveInt(oilMap.get(KEY_INTERVAL_MONTHS));
+            Instant updatedAt = asInstant(oilMap.get(KEY_UPDATED_AT));
+            Long baselineDistanceKm = asLong(oilMap.get(KEY_BASELINE_DISTANCE_KM));
+            Long baselineOdometerKm = asLong(oilMap.get(KEY_BASELINE_ODOMETER_KM));
 
             return new OilConfig(
                     enabled,
@@ -179,7 +299,10 @@ public class OilChangeEventHandler extends BaseEventHandler {
                     lastServiceOdometerKm,
                     lastServiceDate,
                     intervalKm,
-                    intervalMonths);
+                    intervalMonths,
+                    updatedAt,
+                    baselineDistanceKm,
+                    baselineOdometerKm);
         }
 
         Long dueKm() {
