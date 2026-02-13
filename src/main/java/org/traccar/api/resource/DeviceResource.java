@@ -58,9 +58,11 @@ import java.io.FileInputStream;
 import java.io.IOException;
 import java.security.GeneralSecurityException;
 import java.util.Date;
+import java.util.HashMap;
 import java.util.HashSet;
 import java.util.LinkedList;
 import java.util.List;
+import java.util.Map;
 import java.util.Set;
 import java.util.stream.Stream;
 
@@ -72,6 +74,8 @@ public class DeviceResource extends BaseObjectResource<Device> {
     private static final int DEFAULT_BUFFER_SIZE = 8192;
     private static final int IMAGE_SIZE_LIMIT = 500000;
     private static final String ATTRIBUTE_RADAR = "radar";
+    private static final String ATTRIBUTE_MAINTENANCE = "maintenance";
+    private static final String ATTRIBUTE_MAINTENANCE_OIL = "oil";
 
     @Inject
     private Config config;
@@ -151,6 +155,28 @@ public class DeviceResource extends BaseObjectResource<Device> {
                 Object speedLimit = entity.getAttributes().get(Keys.EVENT_OVERSPEED_LIMIT.getKey());
                 if (speedLimit != null) {
                     existing.getAttributes().put(Keys.EVENT_OVERSPEED_LIMIT.getKey(), speedLimit);
+                }
+            }
+
+            // Allow non-admin users to persist maintenance oil settings used by maintenance-center.
+            // Keep write scope narrow: only attributes.maintenance.oil.
+            if (entity.getAttributes() != null && entity.getAttributes().containsKey(ATTRIBUTE_MAINTENANCE)) {
+                Object incomingMaintenance = entity.getAttributes().get(ATTRIBUTE_MAINTENANCE);
+                if (incomingMaintenance instanceof Map<?, ?> incomingMaintenanceMap
+                        && incomingMaintenanceMap.containsKey(ATTRIBUTE_MAINTENANCE_OIL)) {
+                    Object incomingOil = incomingMaintenanceMap.get(ATTRIBUTE_MAINTENANCE_OIL);
+
+                    Object currentMaintenance = existing.getAttributes().get(ATTRIBUTE_MAINTENANCE);
+                    Map<String, Object> nextMaintenance = new HashMap<>();
+                    if (currentMaintenance instanceof Map<?, ?> currentMaintenanceMap) {
+                        for (Map.Entry<?, ?> entry : currentMaintenanceMap.entrySet()) {
+                            if (entry.getKey() != null) {
+                                nextMaintenance.put(String.valueOf(entry.getKey()), entry.getValue());
+                            }
+                        }
+                    }
+                    nextMaintenance.put(ATTRIBUTE_MAINTENANCE_OIL, incomingOil);
+                    existing.getAttributes().put(ATTRIBUTE_MAINTENANCE, nextMaintenance);
                 }
             }
 
