@@ -67,7 +67,7 @@ public class CommunityReportResource extends BaseResource {
             CommunityReportVote.VOTE_EXISTS,
             CommunityReportVote.VOTE_GONE);
 
-    private static final int MAX_REPORTS_PER_DAY = 10;
+    private static final int MAX_REPORTS_PER_DAY = 0;
     private static final long COOLDOWN_MILLIS = 0;
     private static final long CANCEL_WINDOW_MILLIS = 120_000;
     private static final long VOTE_COOLDOWN_MILLIS = 7L * 24 * 60 * 60 * 1000;
@@ -188,6 +188,9 @@ public class CommunityReportResource extends BaseResource {
     }
 
     private void ensureDailyLimit(long userId, Date now) throws StorageException {
+        if (MAX_REPORTS_PER_DAY <= 0) {
+            return;
+        }
         Date startOfDay = Date.from(LocalDate.now(ZoneId.systemDefault())
                 .atStartOfDay(ZoneId.systemDefault())
                 .toInstant());
