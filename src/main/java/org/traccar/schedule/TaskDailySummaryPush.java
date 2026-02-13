@@ -23,6 +23,7 @@ import org.traccar.helper.model.PositionUtil;
 import org.traccar.model.Device;
 import org.traccar.model.Event;
 import org.traccar.model.ObjectOperation;
+import org.traccar.model.Position;
 import org.traccar.model.Typed;
 import org.traccar.model.User;
 import org.traccar.notification.MessageException;
@@ -81,7 +82,8 @@ public class TaskDailySummaryPush extends SingleScheduleTask {
 
     private static final long MIN_MOVEMENT_SECONDS = 10 * 60;
     private static final double MIN_DISTANCE_KM = 1.0;
-    private static final long OVERSPEED_COOLDOWN_MS = TimeUnit.MINUTES.toMillis(2);
+    private static final long LONG_STOP_MIN_SECONDS = 15 * 60;
+    private static final double STOP_SPEED_KNOTS = UnitsConverter.knotsFromKph(1.0);
     private static final long[] RETRY_DELAYS_MS = {
             TimeUnit.MINUTES.toMillis(1),
             TimeUnit.MINUTES.toMillis(5),
@@ -172,7 +174,7 @@ public class TaskDailySummaryPush extends SingleScheduleTask {
                 return;
             }
 
-            NotificationMessage message = buildMessage(user, summary, reportDate);
+            NotificationMessage message = buildMessage(summary, reportDate);
             if (message == null) {
                 scheduleNextCheckUntilCutoff(user, reportDateValue, now, "late_or_no_data");
                 return;
@@ -309,10 +311,9 @@ public class TaskDailySummaryPush extends SingleScheduleTask {
             String name,
             double distanceKm,
             long motionSeconds,
-            int overspeedCount,
-            int overspeedMaxKph,
             int geofenceEnterCount,
-            int geofenceExitCount) {
+            int geofenceExitCount,
+            int maxSpeedKph) {
         int geofenceTotal() {
             return geofenceEnterCount + geofenceExitCount;
         }
@@ -321,7 +322,9 @@ public class TaskDailySummaryPush extends SingleScheduleTask {
     private record UserSummary(
             List<DeviceSummary> deviceSummaries,
             double totalDistanceKm,
-            long totalMotionSeconds) {
+            long totalMotionSeconds,
+            double totalPreviousDistanceKm,
+            int totalLongStops) {
     }
 
     private UserSummary buildSummaryForUser(User user, LocalDate date, ZoneId zoneId) throws StorageException {
@@ -329,6 +332,10 @@ public class TaskDailySummaryPush extends SingleScheduleTask {
         ZonedDateTime toZoned = date.plusDays(1).atStartOfDay(zoneId);
         Date from = Date.from(fromZoned.toInstant());
         Date to = Date.from(toZoned.toInstant());
+        ZonedDateTime previousFromZoned = date.minusDays(1).atStartOfDay(zoneId);
+        ZonedDateTime previousToZoned = date.atStartOfDay(zoneId);
+        Date previousFrom = Date.from(previousFromZoned.toInstant());
+        Date previousTo = Date.from(previousToZoned.toInstant());
 
         var devices = storage.getObjects(Device.class, new Request(
                 new Columns.All(),
@@ -337,6 +344,8 @@ public class TaskDailySummaryPush extends SingleScheduleTask {
         List<DeviceSummary> summaries = new ArrayList<>();
         double totalDistanceKm = 0;
         long totalMotionSeconds = 0;
+        double totalPreviousDistanceKm = 0;
+        int totalLongStops = 0;
 
         for (Device device : devices) {
             var positions = PositionUtil.getPositions(storage, device.getId(), from, to);
@@ -346,12 +355,23 @@ public class TaskDailySummaryPush extends SingleScheduleTask {
 
             double distanceKm = PositionUtil.calculateRouteDistanceMeters(positions) / 1000.0;
             long motionSeconds = Math.round(PositionUtil.calculateMovingTimeSeconds(positions));
+            int longStopCount = countLongStops(positions);
+            var previousPositions = PositionUtil.getPositions(storage, device.getId(), previousFrom, previousTo);
+            double previousDistanceKm = PositionUtil.calculateRouteDistanceMeters(previousPositions) / 1000.0;
+            int maxSpeedKph = 0;
+            for (var position : positions) {
+                double speedKnots = position.getSpeed();
+                if (!Double.isFinite(speedKnots)) {
+                    continue;
+                }
+                int speedKph = (int) Math.round(UnitsConverter.kphFromKnots(speedKnots));
+                if (speedKph > maxSpeedKph) {
+                    maxSpeedKph = speedKph;
+                }
+            }
 
-            int overspeedCount = 0;
-            int overspeedMaxKph = 0;
             int geofenceEnterCount = 0;
             int geofenceExitCount = 0;
-            long lastOverspeedAt = Long.MIN_VALUE;
 
             var events = storage.getObjects(Event.class, new Request(
                     new Columns.All(),
@@ -361,19 +381,7 @@ public class TaskDailySummaryPush extends SingleScheduleTask {
                     new Order("eventTime")));
 
             for (Event event : events) {
-                if (Event.TYPE_DEVICE_OVERSPEED.equals(event.getType())) {
-                    long eventAt = event.getEventTime() != null
-                            ? event.getEventTime().getTime()
-                            : Long.MIN_VALUE;
-                    if (lastOverspeedAt == Long.MIN_VALUE || eventAt - lastOverspeedAt >= OVERSPEED_COOLDOWN_MS) {
-                        overspeedCount += 1;
-                        lastOverspeedAt = eventAt;
-                    }
-                    int speedKph = (int) Math.round(UnitsConverter.kphFromKnots(event.getDouble("speed")));
-                    if (speedKph > overspeedMaxKph) {
-                        overspeedMaxKph = speedKph;
-                    }
-                } else if (Event.TYPE_GEOFENCE_ENTER.equals(event.getType())) {
+                if (Event.TYPE_GEOFENCE_ENTER.equals(event.getType())) {
                     geofenceEnterCount += 1;
                 } else if (Event.TYPE_GEOFENCE_EXIT.equals(event.getType())) {
                     geofenceExitCount += 1;
@@ -385,12 +393,13 @@ public class TaskDailySummaryPush extends SingleScheduleTask {
                     device.getName(),
                     distanceKm,
                     motionSeconds,
-                    overspeedCount,
-                    overspeedMaxKph,
                     geofenceEnterCount,
-                    geofenceExitCount));
+                    geofenceExitCount,
+                    maxSpeedKph));
             totalDistanceKm += distanceKm;
             totalMotionSeconds += motionSeconds;
+            totalPreviousDistanceKm += previousDistanceKm;
+            totalLongStops += longStopCount;
         }
 
         summaries.sort(Comparator
@@ -399,42 +408,31 @@ public class TaskDailySummaryPush extends SingleScheduleTask {
                 .reversed()
                 .thenComparing(DeviceSummary::name, String.CASE_INSENSITIVE_ORDER));
 
-        return new UserSummary(summaries, totalDistanceKm, totalMotionSeconds);
+        return new UserSummary(summaries, totalDistanceKm, totalMotionSeconds, totalPreviousDistanceKm, totalLongStops);
     }
 
-    private NotificationMessage buildMessage(User user, UserSummary summary, LocalDate reportDate) {
+    private NotificationMessage buildMessage(UserSummary summary, LocalDate reportDate) {
         if (summary.deviceSummaries.isEmpty()) {
             return null;
         }
 
-        boolean insightsEnabled = !user.hasAttribute(ATTR_INSIGHTS_ENABLED) || user.getBoolean(ATTR_INSIGHTS_ENABLED);
         var top = summary.deviceSummaries.size() > 2
                 ? summary.deviceSummaries.subList(0, 2)
                 : summary.deviceSummaries;
 
         String title;
-        String body;
+        String body = buildCompactBody(summary);
         String reportPath;
-        String separator = " \u2022 ";
 
         if (top.size() == 1) {
             DeviceSummary item = top.get(0);
             String vehicle = limitName(item.name, 24);
             title = "Resumo de ontem \u2022 " + vehicle;
-            String insight = buildSingleInsight(item, insightsEnabled);
-            body = joinParts(separator,
-                    formatDistance(item.distanceKm) + " km",
-                    formatMotion(item.motionSeconds) + " mov.",
-                    insight);
             reportPath = "/reports/daily?date=" + reportDate.format(DATE_FORMATTER) + "&deviceId=" + item.deviceId;
         } else {
             DeviceSummary first = top.get(0);
             DeviceSummary second = top.get(1);
             title = "Resumo de ontem";
-            body = joinParts(separator,
-                    limitName(first.name, 12) + ":" + formatDistance(first.distanceKm) + " km",
-                    limitName(second.name, 12) + ":" + formatDistance(second.distanceKm) + " km",
-                    buildConsolidatedInsight(top, insightsEnabled));
             reportPath = "/reports/daily?date=" + reportDate.format(DATE_FORMATTER)
                     + "&deviceId=" + first.deviceId
                     + "&deviceId=" + second.deviceId;
@@ -444,18 +442,6 @@ public class TaskDailySummaryPush extends SingleScheduleTask {
         data.put("reportPath", reportPath);
         data.put("summaryType", TYPE_DAILY_SUMMARY_PUSH);
         return new NotificationMessage(title, body, body, true, data);
-    }
-
-    private String buildSingleInsight(DeviceSummary summary, boolean insightsEnabled) {
-        if (summary.overspeedCount > 0) {
-            return "\u26A0\uFE0F " + summary.overspeedCount + " excessos (m\u00E1x " + summary.overspeedMaxKph + " km/h)";
-        }
-        int geofenceTotal = summary.geofenceTotal();
-        if (geofenceTotal > 0) {
-            return "\uD83D\uDCCD " + geofenceTotal
-                    + " cercas (E:" + summary.geofenceEnterCount + " S:" + summary.geofenceExitCount + ")";
-        }
-        return insightsEnabled ? "\u2705 Sem alertas" : "";
     }
 
     private String joinParts(String separator, String... parts) {
@@ -468,16 +454,20 @@ public class TaskDailySummaryPush extends SingleScheduleTask {
         return joiner.toString();
     }
 
-    private String buildConsolidatedInsight(List<DeviceSummary> summaries, boolean insightsEnabled) {
-        int overspeedTotal = summaries.stream().mapToInt(DeviceSummary::overspeedCount).sum();
-        if (overspeedTotal > 0) {
-            return "\u26A0\uFE0F " + overspeedTotal + " excessos";
-        }
-        int geofenceTotal = summaries.stream().mapToInt(DeviceSummary::geofenceTotal).sum();
-        if (geofenceTotal > 0) {
-            return "\uD83D\uDCCD " + geofenceTotal + " cercas";
-        }
-        return insightsEnabled ? "\u2705 Sem alertas" : "";
+    private String buildCompactBody(UserSummary summary) {
+        int geofenceTotal = summary.deviceSummaries.stream().mapToInt(DeviceSummary::geofenceTotal).sum();
+        int averageSpeedKph = calculateAverageSpeedKph(summary.totalDistanceKm, summary.totalMotionSeconds);
+        int maxSpeedKph = summary.deviceSummaries.stream().mapToInt(DeviceSummary::maxSpeedKph).max().orElse(0);
+        String distanceDelta = buildDistanceDeltaInsight(summary.totalDistanceKm, summary.totalPreviousDistanceKm);
+
+        return joinParts(" \u2022 ",
+                "\uD83D\uDEE3\uFE0F " + formatDistance(summary.totalDistanceKm) + " km",
+                "\u23F1\uFE0F " + formatMotion(summary.totalMotionSeconds),
+                "\uD83D\uDCCD " + geofenceTotal,
+                "\uD83C\uDFCE\uFE0F " + averageSpeedKph + " km/h",
+                "\uD83D\uDE80 " + maxSpeedKph + " km/h",
+                distanceDelta,
+                "\uD83D\uDED1 " + summary.totalLongStops);
     }
 
     private String formatDistance(double distanceKm) {
@@ -485,6 +475,59 @@ public class TaskDailySummaryPush extends SingleScheduleTask {
         symbols.setDecimalSeparator(',');
         DecimalFormat decimalFormat = new DecimalFormat("0.0", symbols);
         return decimalFormat.format(distanceKm);
+    }
+
+    private int calculateAverageSpeedKph(double distanceKm, long motionSeconds) {
+        if (distanceKm <= 0 || motionSeconds <= 0) {
+            return 0;
+        }
+        double hours = motionSeconds / 3600.0;
+        if (!Double.isFinite(hours) || hours <= 0) {
+            return 0;
+        }
+        return (int) Math.round(distanceKm / hours);
+    }
+
+    private String buildDistanceDeltaInsight(double currentDistanceKm, double previousDistanceKm) {
+        if (previousDistanceKm <= 0) {
+            return "";
+        }
+        double deltaPercent = ((currentDistanceKm - previousDistanceKm) / previousDistanceKm) * 100.0;
+        String sign = deltaPercent > 0 ? "+" : "";
+        DecimalFormatSymbols symbols = new DecimalFormatSymbols(new Locale("pt", "BR"));
+        symbols.setDecimalSeparator(',');
+        DecimalFormat decimalFormat = new DecimalFormat("0", symbols);
+        return "\uD83D\uDCCA " + sign + decimalFormat.format(deltaPercent) + "% km";
+    }
+
+    private int countLongStops(List<Position> positions) {
+        if (positions == null || positions.size() < 2) {
+            return 0;
+        }
+        long stoppedSeconds = 0;
+        int longStops = 0;
+        for (int index = 1; index < positions.size(); index++) {
+            Position previous = positions.get(index - 1);
+            Position current = positions.get(index);
+            long deltaSeconds = (current.getFixTime().getTime() - previous.getFixTime().getTime()) / 1000;
+            if (deltaSeconds <= 0) {
+                continue;
+            }
+            double previousSpeedKnots = Double.isFinite(previous.getSpeed()) ? previous.getSpeed() : 0;
+            boolean moving = previousSpeedKnots > STOP_SPEED_KNOTS;
+            if (moving) {
+                if (stoppedSeconds >= LONG_STOP_MIN_SECONDS) {
+                    longStops += 1;
+                }
+                stoppedSeconds = 0;
+            } else {
+                stoppedSeconds += deltaSeconds;
+            }
+        }
+        if (stoppedSeconds >= LONG_STOP_MIN_SECONDS) {
+            longStops += 1;
+        }
+        return longStops;
     }
 
     private String formatMotion(long motionSeconds) {
