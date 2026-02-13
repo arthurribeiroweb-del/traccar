@@ -26,6 +26,8 @@ public class CommunityReport extends BaseModel {
     public static final String TYPE_RADAR = "RADAR";
     public static final String TYPE_BURACO = "BURACO";
     public static final String TYPE_QUEBRA_MOLAS = "QUEBRA_MOLAS";
+    public static final String TYPE_FAIXA_PEDESTRE = "FAIXA_PEDESTRE";
+    public static final String TYPE_SINAL_TRANSITO = "SINAL_TRANSITO";
 
     public static final String STATUS_PENDING_PRIVATE = "PENDING_PRIVATE";
     public static final String STATUS_APPROVED_PUBLIC = "APPROVED_PUBLIC";

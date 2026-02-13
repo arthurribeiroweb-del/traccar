@@ -69,6 +69,8 @@ public class CommunityReportAdminResource extends BaseResource {
         long days = switch (type) {
             case CommunityReport.TYPE_BURACO -> 7;
             case CommunityReport.TYPE_QUEBRA_MOLAS -> 180;
+            case CommunityReport.TYPE_FAIXA_PEDESTRE -> 180;
+            case CommunityReport.TYPE_SINAL_TRANSITO -> 180;
             default -> 365;
         };
         return new Date(approvedAt.getTime() + (days * 24L * 60L * 60L * 1000L));

@@ -54,7 +54,9 @@ public class CommunityReportResource extends BaseResource {
     private static final Set<String> ALLOWED_TYPES = Set.of(
             CommunityReport.TYPE_RADAR,
             CommunityReport.TYPE_BURACO,
-            CommunityReport.TYPE_QUEBRA_MOLAS);
+            CommunityReport.TYPE_QUEBRA_MOLAS,
+            CommunityReport.TYPE_FAIXA_PEDESTRE,
+            CommunityReport.TYPE_SINAL_TRANSITO);
     private static final Set<String> ALLOWED_STATUSES = Set.of(
             CommunityReport.STATUS_PENDING_PRIVATE,
             CommunityReport.STATUS_APPROVED_PUBLIC,
@@ -81,6 +83,8 @@ public class CommunityReportResource extends BaseResource {
             case CommunityReport.TYPE_RADAR -> 80.0;
             case CommunityReport.TYPE_BURACO -> 40.0;
             case CommunityReport.TYPE_QUEBRA_MOLAS -> 60.0;
+            case CommunityReport.TYPE_FAIXA_PEDESTRE -> 60.0;
+            case CommunityReport.TYPE_SINAL_TRANSITO -> 60.0;
             default -> 0.0;
         };
     }
