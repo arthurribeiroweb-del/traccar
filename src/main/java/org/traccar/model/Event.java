@@ -66,6 +66,8 @@ public class Event extends Message {
     public static final String TYPE_MAINTENANCE = "maintenance";
     public static final String TYPE_OIL_CHANGE_SOON = "oilChangeSoon";
     public static final String TYPE_OIL_CHANGE_DUE = "oilChangeDue";
+    public static final String TYPE_TIRE_ROTATION_SOON = "tireRotationSoon";
+    public static final String TYPE_TIRE_ROTATION_DUE = "tireRotationDue";
     public static final String TYPE_DRIVER_CHANGED = "driverChanged";
     public static final String TYPE_MEDIA = "media";
 

@@ -54,6 +54,7 @@ import org.traccar.handler.events.MaintenanceEventHandler;
 import org.traccar.handler.events.MediaEventHandler;
 import org.traccar.handler.events.MotionEventHandler;
 import org.traccar.handler.events.OilChangeEventHandler;
+import org.traccar.handler.events.TireRotationEventHandler;
 import org.traccar.handler.events.OverspeedEventHandler;
 import org.traccar.handler.network.AcknowledgementHandler;
 import org.traccar.helper.PositionLogger;
@@ -129,6 +130,7 @@ public class ProcessingHandler extends ChannelInboundHandlerAdapter implements B
                 IgnitionEventHandler.class,
                 MaintenanceEventHandler.class,
                 OilChangeEventHandler.class,
+                TireRotationEventHandler.class,
                 DriverEventHandler.class)
                 .map((clazz) -> (BaseEventHandler) injector.getInstance(clazz))
                 .filter(Objects::nonNull)
