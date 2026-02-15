@@ -24,11 +24,13 @@ import org.traccar.model.Position;
 import org.traccar.session.cache.CacheManager;
 
 import java.time.Instant;
+import java.time.LocalDate;
 import java.time.ZoneOffset;
 import java.time.ZonedDateTime;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
+import java.util.concurrent.ConcurrentHashMap;
 
 public class OilChangeEventHandler extends BaseEventHandler {
 
@@ -59,6 +61,7 @@ public class OilChangeEventHandler extends BaseEventHandler {
     private static final long PRE_DUE_DAYS_THRESHOLD = 7;
 
     private final CacheManager cacheManager;
+    private final Map<String, LocalDate> notificationDedupeByDay = new ConcurrentHashMap<>();
 
     @Inject
     public OilChangeEventHandler(CacheManager cacheManager) {
@@ -95,42 +98,35 @@ public class OilChangeEventHandler extends BaseEventHandler {
             return;
         }
 
-        boolean dueByKm = false;
-        boolean dueByDate = false;
-        boolean soonByKm = false;
-        boolean soonByDate = false;
+        boolean dueByKm = dueKm != null && currentKm != null && currentKm >= dueKm;
+        boolean dueByDate = dueDate != null && !newTime.isBefore(dueDate);
+        boolean soonByKm = !dueByKm
+                && soonKm != null
+                && currentKm != null
+                && currentKm >= soonKm
+                && (dueKm == null || currentKm < dueKm);
+        boolean soonByDate = !dueByDate
+                && soonDate != null
+                && !newTime.isBefore(soonDate)
+                && (dueDate == null || newTime.isBefore(dueDate));
 
-        if (dueKm != null) {
-            if (oldKm != null && currentKm != null && oldKm < dueKm && currentKm >= dueKm) {
-                dueByKm = true;
-            } else if (config.updatedAt != null && oldTime != null
-                    && !config.updatedAt.isBefore(oldTime) && currentKm != null && currentKm >= dueKm) {
-                dueByKm = true;
-            } else if (soonKm != null && oldKm != null && currentKm != null
-                    && oldKm > soonKm && currentKm <= soonKm && currentKm < dueKm) {
-                soonByKm = true;
-            }
-        }
-
-        if (dueDate != null) {
-            if (oldTime != null && oldTime.isBefore(dueDate) && !newTime.isBefore(dueDate)) {
-                dueByDate = true;
-            } else if (config.updatedAt != null && oldTime != null
-                    && !config.updatedAt.isBefore(oldTime) && !newTime.isBefore(dueDate)) {
-                dueByDate = true;
-            } else if (soonDate != null && oldTime != null
-                    && oldTime.isBefore(soonDate) && !newTime.isBefore(soonDate) && newTime.isBefore(dueDate)) {
-                soonByDate = true;
-            }
-        }
+        String cycleKey = cycleKey(device.getId(), dueKm, dueDate);
 
         if (dueByKm || dueByDate) {
+            if (!shouldNotifyToday(cycleKey, Event.TYPE_OIL_CHANGE_DUE, newTime)) {
+                logEvaluation(device.getId(), config, dueKm, dueDate, oldKm, currentKm, oldTime, newTime, "due_suppressed");
+                return;
+            }
             emitEvent(callback, position, currentKm, dueKm, dueDate, dueByKm, dueByDate, Event.TYPE_OIL_CHANGE_DUE);
             logEvaluation(device.getId(), config, dueKm, dueDate, oldKm, currentKm, oldTime, newTime, "due");
             return;
         }
 
         if (soonByKm || soonByDate) {
+            if (!shouldNotifyToday(cycleKey, Event.TYPE_OIL_CHANGE_SOON, newTime)) {
+                logEvaluation(device.getId(), config, dueKm, dueDate, oldKm, currentKm, oldTime, newTime, "soon_suppressed");
+                return;
+            }
             emitEvent(callback, position, currentKm, dueKm, dueDate, soonByKm, soonByDate, Event.TYPE_OIL_CHANGE_SOON);
             logEvaluation(device.getId(), config, dueKm, dueDate, oldKm, currentKm, oldTime, newTime, "soon");
             return;
@@ -191,6 +187,21 @@ public class OilChangeEventHandler extends BaseEventHandler {
                 config.intervalKm,
                 config.intervalMonths,
                 decision);
+    }
+
+    private static String cycleKey(long deviceId, Long dueKm, Instant dueDate) {
+        return deviceId + "|" + (dueKm != null ? dueKm : "no-km") + "|" + (dueDate != null ? dueDate : "no-date");
+    }
+
+    private boolean shouldNotifyToday(String cycleKey, String eventType, Instant when) {
+        String key = cycleKey + "|" + eventType;
+        LocalDate today = when.atZone(ZoneOffset.UTC).toLocalDate();
+        LocalDate previous = notificationDedupeByDay.get(key);
+        if (today.equals(previous)) {
+            return false;
+        }
+        notificationDedupeByDay.put(key, today);
+        return true;
     }
 
     private static Instant resolvePositionTime(Position position) {
