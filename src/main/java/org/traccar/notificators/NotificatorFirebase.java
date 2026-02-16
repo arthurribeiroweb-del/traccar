@@ -121,6 +121,9 @@ public class NotificatorFirebase extends Notificator {
                 messageBuilder.putData("eventId", String.valueOf(event.getId()));
             }
 
+            LOGGER.info("push_send_prepare userId={} tokens={} title=\"{}\" body=\"{}\" eventId={}",
+                    user.getId(), registrationTokens.size(), message.subject(), message.digest(),
+                    event != null ? event.getId() : null);
             try {
                 var result = firebaseMessaging.sendEachForMulticast(messageBuilder.build());
                 List<String> failedTokens = new LinkedList<>();
@@ -136,9 +139,19 @@ public class NotificatorFirebase extends Notificator {
                         } else {
                             hasRetriableErrors = true;
                         }
-                        LOGGER.warn("Firebase user {} error", user.getId(), response.getException());
+                        LOGGER.warn("push_send_error userId={} token={} eventId={} code={} error={}",
+                                user.getId(),
+                                registrationTokens.get(index),
+                                event != null ? event.getId() : null,
+                                error,
+                                response.getException().getMessage());
                     }
                 }
+                LOGGER.info("push_send_result userId={} success={} failure={} eventId={}",
+                        user.getId(),
+                        result.getSuccessCount(),
+                        result.getFailureCount(),
+                        event != null ? event.getId() : null);
                 if (!failedTokens.isEmpty()) {
                     registrationTokens.removeAll(failedTokens);
                     if (registrationTokens.isEmpty()) {
@@ -155,7 +168,8 @@ public class NotificatorFirebase extends Notificator {
                     throw new MessageException("Firebase temporary delivery error");
                 }
             } catch (Exception e) {
-                LOGGER.warn("Firebase error", e);
+                LOGGER.warn("push_send_exception userId={} eventId={} error={}",
+                        user.getId(), event != null ? event.getId() : null, e.getMessage(), e);
                 throw new MessageException("Firebase delivery failed", e);
             }
         }

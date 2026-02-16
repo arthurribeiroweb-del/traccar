@@ -118,9 +118,9 @@ public class NotificationManager {
 
         Device device = cacheManager.getObject(Device.class, event.getDeviceId());
         LOGGER.info(
-                "Event id: {}, time: {}, type: {}, notifications: {}",
-                device.getUniqueId(),
-                DateUtil.formatDate(event.getEventTime(), false),
+                "notify_lookup eventId={} device={} eventType={} notifications={}",
+                event.getId(),
+                device != null ? device.getUniqueId() : event.getDeviceId(),
                 event.getType(),
                 notifications.size());
 
@@ -130,16 +130,27 @@ public class NotificationManager {
             }
 
             notifications.forEach(notification -> {
-                cacheManager.getNotificationUsers(notification.getId(), event.getDeviceId()).forEach(user -> {
+                var users = cacheManager.getNotificationUsers(notification.getId(), event.getDeviceId());
+                LOGGER.info(
+                        "notify_dispatch eventId={} notificationId={} type={} users={}",
+                        event.getId(),
+                        notification.getId(),
+                        notification.getType(),
+                        users.size());
+                users.forEach(user -> {
                     if (blockedUsers.contains(user.getId())) {
                         LOGGER.info("User {} notification blocked", user.getId());
                         return;
                     }
                     for (String notificator : notification.getNotificatorsTypes()) {
                         try {
+                            LOGGER.info(
+                                    "notify_send eventId={} userId={} notificator={}",
+                                    event.getId(), user.getId(), notificator);
                             notificatorManager.getNotificator(notificator).send(notification, user, event, position);
                         } catch (MessageException exception) {
-                            LOGGER.warn("Notification failed", exception);
+                            LOGGER.warn("Notification failed eventId={} userId={} notificator={}",
+                                    event.getId(), user.getId(), notificator, exception);
                         }
                     }
                 });
@@ -155,6 +166,12 @@ public class NotificationManager {
             return true;
         }
         if (eventType.equals(Event.TYPE_OIL_CHANGE_DUE) && Event.TYPE_MAINTENANCE.equals(notificationType)) {
+            return true;
+        }
+        if (eventType.equals(Event.TYPE_TIRE_ROTATION_SOON) && Event.TYPE_MAINTENANCE.equals(notificationType)) {
+            return true;
+        }
+        if (eventType.equals(Event.TYPE_TIRE_ROTATION_DUE) && Event.TYPE_MAINTENANCE.equals(notificationType)) {
             return true;
         }
         return eventType.equals(notificationType);

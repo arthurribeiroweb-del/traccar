@@ -117,6 +117,8 @@ public class OilChangeEventHandler extends BaseEventHandler {
                 logEvaluation(device.getId(), config, dueKm, dueDate, oldKm, currentKm, oldTime, newTime, "due_suppressed");
                 return;
             }
+            LOGGER.info("oil_maintenance_emit_due deviceId={} currentKm={} dueKm={} dueDate={} reasons=km:{} date:{}",
+                    device.getId(), currentKm, dueKm, dueDate, dueByKm, dueByDate);
             emitEvent(callback, position, currentKm, dueKm, dueDate, dueByKm, dueByDate, Event.TYPE_OIL_CHANGE_DUE);
             logEvaluation(device.getId(), config, dueKm, dueDate, oldKm, currentKm, oldTime, newTime, "due");
             return;
@@ -127,6 +129,8 @@ public class OilChangeEventHandler extends BaseEventHandler {
                 logEvaluation(device.getId(), config, dueKm, dueDate, oldKm, currentKm, oldTime, newTime, "soon_suppressed");
                 return;
             }
+            LOGGER.info("oil_maintenance_emit_soon deviceId={} currentKm={} dueKm={} dueDate={} reasons=km:{} date:{}",
+                    device.getId(), currentKm, dueKm, dueDate, soonByKm, soonByDate);
             emitEvent(callback, position, currentKm, dueKm, dueDate, soonByKm, soonByDate, Event.TYPE_OIL_CHANGE_SOON);
             logEvaluation(device.getId(), config, dueKm, dueDate, oldKm, currentKm, oldTime, newTime, "soon");
             return;

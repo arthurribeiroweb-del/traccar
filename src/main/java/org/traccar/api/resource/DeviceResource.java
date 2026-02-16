@@ -56,6 +56,7 @@ import jakarta.ws.rs.core.Response;
 import java.io.File;
 import java.io.FileInputStream;
 import java.io.IOException;
+import java.util.UUID;
 import java.security.GeneralSecurityException;
 import java.util.Date;
 import java.util.HashMap;
@@ -136,6 +137,7 @@ public class DeviceResource extends BaseObjectResource<Device> {
     @Path("{id}")
     @PUT
     public Response update(Device entity) throws Exception {
+        String correlationId = "dev-upd-" + UUID.randomUUID();
         permissionsService.checkPermission(Device.class, getUserId(), entity.getId());
         User user = permissionsService.getUser(getUserId());
         Device existing = storage.getObject(Device.class, new Request(
@@ -165,6 +167,8 @@ public class DeviceResource extends BaseObjectResource<Device> {
                 if (incomingMaintenance instanceof Map<?, ?> incomingMaintenanceMap
                         && incomingMaintenanceMap.containsKey(ATTRIBUTE_MAINTENANCE_OIL)) {
                     Object incomingOil = incomingMaintenanceMap.get(ATTRIBUTE_MAINTENANCE_OIL);
+                    LOGGER.info("maintenance_save correlationId={} userId={} deviceId={} payloadOil={}",
+                            correlationId, getUserId(), entity.getId(), incomingOil);
 
                     Object currentMaintenance = existing.getAttributes().get(ATTRIBUTE_MAINTENANCE);
                     Map<String, Object> nextMaintenance = new HashMap<>();
@@ -185,10 +189,13 @@ public class DeviceResource extends BaseObjectResource<Device> {
                     new Condition.Equals("id", existing.getId())));
             cacheManager.invalidateObject(true, Device.class, existing.getId(), ObjectOperation.UPDATE);
             actionLogger.edit(request, getUserId(), existing);
+            LOGGER.info("maintenance_save_done correlationId={} userId={} deviceId={}", correlationId, getUserId(), entity.getId());
             return Response.ok(existing).build();
         }
 
         permissionsService.checkEdit(getUserId(), entity, false, false);
+        LOGGER.info("maintenance_save_admin correlationId={} userId={} deviceId={} attributesPresent={}",
+                correlationId, getUserId(), entity.getId(), entity.getAttributes() != null);
         storage.updateObject(entity, new Request(
                 new Columns.Exclude("id"),
                 new Condition.Equals("id", entity.getId())));
