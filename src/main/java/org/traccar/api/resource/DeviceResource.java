@@ -18,6 +18,8 @@ package org.traccar.api.resource;
 import jakarta.servlet.http.HttpServletRequest;
 import jakarta.ws.rs.FormParam;
 import jakarta.ws.rs.core.Context;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 import org.traccar.api.BaseObjectResource;
 import org.traccar.api.signature.TokenManager;
 import org.traccar.broadcast.BroadcastService;
@@ -77,6 +79,7 @@ public class DeviceResource extends BaseObjectResource<Device> {
     private static final String ATTRIBUTE_RADAR = "radar";
     private static final String ATTRIBUTE_MAINTENANCE = "maintenance";
     private static final String ATTRIBUTE_MAINTENANCE_OIL = "oil";
+    private static final Logger LOGGER = LoggerFactory.getLogger(DeviceResource.class);
 
     @Inject
     private Config config;
