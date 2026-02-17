@@ -79,6 +79,7 @@ public class DeviceResource extends BaseObjectResource<Device> {
     private static final String ATTRIBUTE_RADAR = "radar";
     private static final String ATTRIBUTE_MAINTENANCE = "maintenance";
     private static final String ATTRIBUTE_MAINTENANCE_OIL = "oil";
+    private static final String ATTRIBUTE_MAINTENANCE_TIRE = "tireRotation";
     private static final Logger LOGGER = LoggerFactory.getLogger(DeviceResource.class);
 
     @Inject
@@ -163,15 +164,17 @@ public class DeviceResource extends BaseObjectResource<Device> {
                 }
             }
 
-            // Allow non-admin users to persist maintenance oil settings used by maintenance-center.
-            // Keep write scope narrow: only attributes.maintenance.oil.
+            // Allow non-admin users to persist maintenance settings used by maintenance-center.
+            // Keep write scope narrow: only attributes.maintenance.oil and attributes.maintenance.tireRotation.
             if (entity.getAttributes() != null && entity.getAttributes().containsKey(ATTRIBUTE_MAINTENANCE)) {
                 Object incomingMaintenance = entity.getAttributes().get(ATTRIBUTE_MAINTENANCE);
                 if (incomingMaintenance instanceof Map<?, ?> incomingMaintenanceMap
-                        && incomingMaintenanceMap.containsKey(ATTRIBUTE_MAINTENANCE_OIL)) {
+                        && (incomingMaintenanceMap.containsKey(ATTRIBUTE_MAINTENANCE_OIL)
+                        || incomingMaintenanceMap.containsKey(ATTRIBUTE_MAINTENANCE_TIRE))) {
                     Object incomingOil = incomingMaintenanceMap.get(ATTRIBUTE_MAINTENANCE_OIL);
-                    LOGGER.info("maintenance_save correlationId={} userId={} deviceId={} payloadOil={}",
-                            correlationId, getUserId(), entity.getId(), incomingOil);
+                    Object incomingTire = incomingMaintenanceMap.get(ATTRIBUTE_MAINTENANCE_TIRE);
+                    LOGGER.info("maintenance_save correlationId={} userId={} deviceId={} payloadOil={} payloadTire={}",
+                            correlationId, getUserId(), entity.getId(), incomingOil, incomingTire);
 
                     Object currentMaintenance = existing.getAttributes().get(ATTRIBUTE_MAINTENANCE);
                     Map<String, Object> nextMaintenance = new HashMap<>();
@@ -182,7 +185,12 @@ public class DeviceResource extends BaseObjectResource<Device> {
                             }
                         }
                     }
-                    nextMaintenance.put(ATTRIBUTE_MAINTENANCE_OIL, incomingOil);
+                    if (incomingMaintenanceMap.containsKey(ATTRIBUTE_MAINTENANCE_OIL)) {
+                        nextMaintenance.put(ATTRIBUTE_MAINTENANCE_OIL, incomingOil);
+                    }
+                    if (incomingMaintenanceMap.containsKey(ATTRIBUTE_MAINTENANCE_TIRE)) {
+                        nextMaintenance.put(ATTRIBUTE_MAINTENANCE_TIRE, incomingTire);
+                    }
                     existing.getAttributes().put(ATTRIBUTE_MAINTENANCE, nextMaintenance);
                 }
             }
