@@ -16,8 +16,14 @@
 package org.traccar.schedule;
 
 import jakarta.inject.Inject;
+import jakarta.ws.rs.client.Client;
+import jakarta.ws.rs.client.Entity;
+import jakarta.ws.rs.client.InvocationCallback;
+import jakarta.ws.rs.core.Response;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+import org.traccar.config.Config;
+import org.traccar.config.Keys;
 import org.traccar.helper.UnitsConverter;
 import org.traccar.helper.model.PositionUtil;
 import org.traccar.model.Device;
@@ -48,6 +54,7 @@ import java.util.ArrayList;
 import java.util.Comparator;
 import java.util.Date;
 import java.util.HashMap;
+import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Locale;
 import java.util.Map;
@@ -69,6 +76,7 @@ public class TaskDailySummaryPush extends SingleScheduleTask {
     private static final String ATTR_STATE_SENT_AT = "dailySummaryPush.sentAt";
     private static final String ATTR_STATE_LAST_ERROR = "dailySummaryPush.lastError";
     private static final String ATTR_INSIGHTS_ENABLED = "dailySummaryInsights";
+    private static final String ATTR_STATE_WHATSAPP_STATUS = "dailySummaryPush.whatsappStatus";
 
     private static final ZoneId FALLBACK_ZONE = ZoneId.of("America/Sao_Paulo");
     private static final DateTimeFormatter DATE_FORMATTER = DateTimeFormatter.ISO_LOCAL_DATE;
@@ -93,12 +101,20 @@ public class TaskDailySummaryPush extends SingleScheduleTask {
     private final Storage storage;
     private final CacheManager cacheManager;
     private final NotificatorManager notificatorManager;
+    private final Client client;
+    private final String webhookUrl;
+    private final String webhookToken;
 
     @Inject
-    public TaskDailySummaryPush(Storage storage, CacheManager cacheManager, NotificatorManager notificatorManager) {
+    public TaskDailySummaryPush(
+            Storage storage, CacheManager cacheManager,
+            NotificatorManager notificatorManager, Client client, Config config) {
         this.storage = storage;
         this.cacheManager = cacheManager;
         this.notificatorManager = notificatorManager;
+        this.client = client;
+        this.webhookUrl = config.getString(Keys.DAILY_SUMMARY_WEBHOOK_URL);
+        this.webhookToken = config.getString(Keys.DAILY_SUMMARY_WEBHOOK_TOKEN);
     }
 
     @Override
@@ -108,16 +124,20 @@ public class TaskDailySummaryPush extends SingleScheduleTask {
 
     @Override
     public void run() {
+        LOGGER.info("[DailySummary] job=start");
         try {
             var users = storage.getObjects(User.class, new Request(new Columns.All()));
+            int processed = 0;
             for (User user : users) {
                 if (user.getTemporary() || user.getDisabled() || !user.hasAttribute("notificationTokens")) {
                     continue;
                 }
                 processUser(user);
+                processed++;
             }
+            LOGGER.info("[DailySummary] job=end usersProcessed={}", processed);
         } catch (StorageException error) {
-            LOGGER.warn("Daily summary push task failed to load users", error);
+            LOGGER.warn("[DailySummary] job=error", error);
         }
     }
 
@@ -174,6 +194,10 @@ public class TaskDailySummaryPush extends SingleScheduleTask {
                 return;
             }
 
+            LOGGER.info("[DailySummary] payload userId={} devices={} distanceKm={} motionSec={}",
+                    user.getId(), summary.deviceSummaries.size(),
+                    formatDistance(summary.totalDistanceKm), summary.totalMotionSeconds);
+
             NotificationMessage message = buildMessage(summary, reportDate);
             if (message == null) {
                 scheduleNextCheckUntilCutoff(user, reportDateValue, now, "late_or_no_data");
@@ -181,6 +205,7 @@ public class TaskDailySummaryPush extends SingleScheduleTask {
             }
 
             sendPushWithRetryState(user, reportDateValue, message, now);
+            sendToWebhook(user, summary, reportDate, reportDateValue);
         } catch (Exception error) {
             LOGGER.warn("Daily summary push failed for user {}", user.getId(), error);
         }
@@ -212,6 +237,7 @@ public class TaskDailySummaryPush extends SingleScheduleTask {
         user.set(ATTR_STATE_RETRY_COUNT, 0);
         user.removeAttribute(ATTR_STATE_LAST_ERROR);
         user.removeAttribute(ATTR_STATE_SENT_AT);
+        user.removeAttribute(ATTR_STATE_WHATSAPP_STATUS);
         long firstAttemptAt = ZonedDateTime.now(zoneId)
                 .with(WINDOW_TARGET)
                 .toInstant()
@@ -232,7 +258,8 @@ public class TaskDailySummaryPush extends SingleScheduleTask {
     }
 
     private void updateState(
-            User user, String reportDate, String status, Long nextAt, Integer retryCount, String lastError) throws StorageException {
+            User user, String reportDate, String status, Long nextAt, Integer retryCount, String lastError)
+            throws StorageException {
         user.set(ATTR_STATE_DATE, reportDate);
         user.set(ATTR_STATE_STATUS, status);
         if (nextAt != null) {
@@ -278,6 +305,7 @@ public class TaskDailySummaryPush extends SingleScheduleTask {
         try {
             sendToAvailablePushNotificator(user, message);
             updateState(user, reportDate, "sent", null, retryCount, null);
+            LOGGER.info("[DailySummary] pushSent userId={} dateRef={}", user.getId(), reportDate);
         } catch (MessageException error) {
             if (retryCount >= RETRY_DELAYS_MS.length) {
                 updateState(user, reportDate, "skipped_push_failed", null, retryCount, "push_failed");
@@ -286,7 +314,7 @@ public class TaskDailySummaryPush extends SingleScheduleTask {
                 long nextAt = now.toInstant().toEpochMilli() + delay;
                 updateState(user, reportDate, "retry_pending", nextAt, retryCount + 1, "push_retry");
             }
-            LOGGER.warn("Daily summary push send failed for user {}", user.getId(), error);
+            LOGGER.warn("[DailySummary] pushFailed userId={}", user.getId(), error);
         }
     }
 
@@ -554,5 +582,110 @@ public class TaskDailySummaryPush extends SingleScheduleTask {
             return value.substring(0, Math.max(limit, 1));
         }
         return value.substring(0, limit - 3) + "...";
+    }
+
+    // ── n8n Webhook Fan-Out ──────────────────────────────────────────────
+
+    private void sendToWebhook(User user, UserSummary summary, LocalDate reportDate, String reportDateValue) {
+        if (webhookUrl == null || webhookUrl.isBlank()) {
+            return;
+        }
+
+        String whatsappStatus = user.getString(ATTR_STATE_WHATSAPP_STATUS, "pending");
+        if ("sent".equals(whatsappStatus)) {
+            LOGGER.debug("[DailySummary] webhook skipped (already sent) userId={} dateRef={}",
+                    user.getId(), reportDateValue);
+            return;
+        }
+
+        Map<String, Object> payload = buildWebhookPayload(user, summary, reportDate);
+
+        var requestBuilder = client.target(webhookUrl).request();
+        requestBuilder.header("Content-Type", "application/json");
+        if (webhookToken != null && !webhookToken.isBlank()) {
+            requestBuilder.header("Authorization", "Bearer " + webhookToken);
+        }
+
+        requestBuilder.async().post(Entity.json(payload), new InvocationCallback<Response>() {
+            @Override
+            public void completed(Response response) {
+                int status = response.getStatusInfo().getStatusCode();
+                if (response.getStatusInfo().getFamily() == Response.Status.Family.SUCCESSFUL) {
+                    LOGGER.info("[DailySummary] webhookSent userId={} dateRef={} httpStatus={}",
+                            user.getId(), reportDateValue, status);
+                    try {
+                        user.set(ATTR_STATE_WHATSAPP_STATUS, "sent");
+                        persistUserAttributes(user);
+                    } catch (StorageException e) {
+                        LOGGER.warn("[DailySummary] webhookSent but failed to persist whatsapp status", e);
+                    }
+                } else {
+                    LOGGER.warn("[DailySummary] webhookFailed userId={} dateRef={} httpStatus={}",
+                            user.getId(), reportDateValue, status);
+                    try {
+                        user.set(ATTR_STATE_WHATSAPP_STATUS, "failed");
+                        persistUserAttributes(user);
+                    } catch (StorageException e) {
+                        LOGGER.warn("[DailySummary] webhookFailed and failed to persist whatsapp status", e);
+                    }
+                }
+            }
+
+            @Override
+            public void failed(Throwable throwable) {
+                LOGGER.warn("[DailySummary] webhookError userId={} dateRef={}",
+                        user.getId(), reportDateValue, throwable);
+                try {
+                    user.set(ATTR_STATE_WHATSAPP_STATUS, "failed");
+                    persistUserAttributes(user);
+                } catch (StorageException e) {
+                    LOGGER.warn("[DailySummary] webhookError and failed to persist whatsapp status", e);
+                }
+            }
+        });
+    }
+
+    private Map<String, Object> buildWebhookPayload(User user, UserSummary summary, LocalDate reportDate) {
+        String dateRef = reportDate.format(DATE_FORMATTER);
+        int maxSpeedKph = summary.deviceSummaries.stream().mapToInt(DeviceSummary::maxSpeedKph).max().orElse(0);
+        int avgSpeedKph = calculateAverageSpeedKph(summary.totalDistanceKm, summary.totalMotionSeconds);
+        Double deltaPercent = null;
+        if (summary.totalPreviousDistanceKm > 0) {
+            deltaPercent = ((summary.totalDistanceKm - summary.totalPreviousDistanceKm)
+                    / summary.totalPreviousDistanceKm) * 100.0;
+        }
+
+        List<Map<String, Object>> deviceList = new ArrayList<>();
+        for (DeviceSummary ds : summary.deviceSummaries) {
+            Map<String, Object> deviceMap = new LinkedHashMap<>();
+            deviceMap.put("deviceId", ds.deviceId);
+            deviceMap.put("vehicleName", ds.name);
+            deviceMap.put("distanceKm", Math.round(ds.distanceKm * 10.0) / 10.0);
+            deviceMap.put("motionSeconds", ds.motionSeconds);
+            deviceMap.put("motionFormatted", formatMotion(ds.motionSeconds));
+            deviceMap.put("geofenceEnterCount", ds.geofenceEnterCount);
+            deviceMap.put("geofenceExitCount", ds.geofenceExitCount);
+            deviceMap.put("geofenceTotal", ds.geofenceTotal());
+            deviceMap.put("avgSpeedKmh", calculateAverageSpeedKph(ds.distanceKm, ds.motionSeconds));
+            deviceMap.put("maxSpeedKmh", ds.maxSpeedKph);
+            deviceList.add(deviceMap);
+        }
+
+        Map<String, Object> totals = new LinkedHashMap<>();
+        totals.put("distanceKm", Math.round(summary.totalDistanceKm * 10.0) / 10.0);
+        totals.put("motionSeconds", summary.totalMotionSeconds);
+        totals.put("motionFormatted", formatMotion(summary.totalMotionSeconds));
+        totals.put("avgSpeedKmh", avgSpeedKph);
+        totals.put("maxSpeedKmh", maxSpeedKph);
+        totals.put("distanceDeltaPercent", deltaPercent);
+        totals.put("longStops", summary.totalLongStops);
+
+        Map<String, Object> payload = new LinkedHashMap<>();
+        payload.put("userId", user.getId());
+        payload.put("userName", user.getName());
+        payload.put("dateRef", dateRef);
+        payload.put("devices", deviceList);
+        payload.put("totals", totals);
+        return payload;
     }
 }
