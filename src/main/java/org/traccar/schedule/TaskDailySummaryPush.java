@@ -683,6 +683,8 @@ public class TaskDailySummaryPush extends SingleScheduleTask {
         Map<String, Object> payload = new LinkedHashMap<>();
         payload.put("userId", user.getId());
         payload.put("userName", user.getName());
+        payload.put("userPhone", user.getPhone());
+        payload.put("userEmail", user.getEmail());
         payload.put("dateRef", dateRef);
         payload.put("devices", deviceList);
         payload.put("totals", totals);
