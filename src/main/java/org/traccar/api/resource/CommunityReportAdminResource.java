@@ -66,8 +66,10 @@ public class CommunityReportAdminResource extends BaseResource {
     }
 
     private static Date calculateExpiration(String type, Date approvedAt) {
+        if (CommunityReport.TYPE_BURACO.equals(type)) {
+            return null;
+        }
         long days = switch (type) {
-            case CommunityReport.TYPE_BURACO -> 7;
             case CommunityReport.TYPE_QUEBRA_MOLAS -> 180;
             case CommunityReport.TYPE_FAIXA_PEDESTRE -> 180;
             case CommunityReport.TYPE_SINAL_TRANSITO -> 180;
@@ -94,6 +96,9 @@ public class CommunityReportAdminResource extends BaseResource {
     private static boolean isVisibleOnPublicMap(CommunityReport report, Date now) {
         if (!CommunityReport.STATUS_APPROVED_PUBLIC.equals(report.getStatus())) {
             return false;
+        }
+        if (CommunityReport.TYPE_BURACO.equals(report.getType())) {
+            return true;
         }
         return report.getExpiresAt() == null || report.getExpiresAt().after(now);
     }

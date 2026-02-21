@@ -112,6 +112,16 @@ public class CommunityReportResource extends BaseResource {
                 && radarSpeedLimit <= MAX_RADAR_SPEED_LIMIT_KPH;
     }
 
+    private static boolean isVisibleOnPublicMap(CommunityReport report, Date now) {
+        if (!CommunityReport.STATUS_APPROVED_PUBLIC.equals(report.getStatus())) {
+            return false;
+        }
+        if (CommunityReport.TYPE_BURACO.equals(report.getType())) {
+            return true;
+        }
+        return report.getExpiresAt() == null || report.getExpiresAt().after(now);
+    }
+
     private static double haversineDistanceMeters(double lat1, double lon1, double lat2, double lon2) {
         double phi1 = Math.toRadians(lat1);
         double phi2 = Math.toRadians(lat2);
@@ -338,7 +348,7 @@ public class CommunityReportResource extends BaseResource {
                     new Columns.All(), condition, new Order("createdAt", true, 500)));
             Date now = new Date();
             List<CommunityReport> active = reports.stream()
-                    .filter(report -> report.getExpiresAt() == null || report.getExpiresAt().after(now))
+                    .filter(report -> isVisibleOnPublicMap(report, now))
                     .toList();
             fillAuthorNames(active);
             return active;
