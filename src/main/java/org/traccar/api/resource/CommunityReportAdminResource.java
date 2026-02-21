@@ -91,6 +91,13 @@ public class CommunityReportAdminResource extends BaseResource {
                 && radarSpeedLimit <= MAX_RADAR_SPEED_LIMIT_KPH;
     }
 
+    private static boolean isVisibleOnPublicMap(CommunityReport report, Date now) {
+        if (!CommunityReport.STATUS_APPROVED_PUBLIC.equals(report.getStatus())) {
+            return false;
+        }
+        return report.getExpiresAt() == null || report.getExpiresAt().after(now);
+    }
+
     private CommunityReport getRequiredReport(long id) throws StorageException {
         CommunityReport report = storage.getObject(CommunityReport.class, new Request(
                 new Columns.All(),
@@ -148,6 +155,12 @@ public class CommunityReportAdminResource extends BaseResource {
                 new Columns.All(),
                 new Condition.Equals("status", normalizedStatus),
                 new Order("createdAt", true, 1000)));
+        if (CommunityReport.STATUS_APPROVED_PUBLIC.equals(normalizedStatus)) {
+            Date now = new Date();
+            reports = reports.stream()
+                    .filter(report -> isVisibleOnPublicMap(report, now))
+                    .toList();
+        }
         fillAuthorNames(reports);
         return reports;
     }
@@ -166,8 +179,14 @@ public class CommunityReportAdminResource extends BaseResource {
         }
 
         List<CommunityReport> reports = storage.getObjects(CommunityReport.class, new Request(
-                new Columns.Include("id"),
+                new Columns.Include("id", "expiresAt"),
                 new Condition.Equals("status", normalizedStatus)));
+        if (CommunityReport.STATUS_APPROVED_PUBLIC.equals(normalizedStatus)) {
+            Date now = new Date();
+            reports = reports.stream()
+                    .filter(report -> isVisibleOnPublicMap(report, now))
+                    .toList();
+        }
         return new CountResponse(reports.size());
     }
 
