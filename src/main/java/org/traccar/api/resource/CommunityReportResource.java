@@ -75,6 +75,7 @@ public class CommunityReportResource extends BaseResource {
     private static final int MIN_RADAR_SPEED_LIMIT_KPH = 20;
     private static final int MAX_RADAR_SPEED_LIMIT_KPH = 120;
     private static final double DUPLICATE_RADIUS_METERS = 5.0;
+    private static final String MASTER_AUTO_APPROVE_EMAIL = "arthur.ribeiro.web@gmail.com";
 
     @Inject
     private CommunityRadarGeofenceManager communityRadarGeofenceManager;
@@ -110,6 +111,19 @@ public class CommunityReportResource extends BaseResource {
         return radarSpeedLimit != null
                 && radarSpeedLimit >= MIN_RADAR_SPEED_LIMIT_KPH
                 && radarSpeedLimit <= MAX_RADAR_SPEED_LIMIT_KPH;
+    }
+
+    private static Date calculateExpiration(String type, Date approvedAt) {
+        if (CommunityReport.TYPE_BURACO.equals(type)) {
+            return null;
+        }
+        long days = switch (type) {
+            case CommunityReport.TYPE_QUEBRA_MOLAS -> 180;
+            case CommunityReport.TYPE_FAIXA_PEDESTRE -> 180;
+            case CommunityReport.TYPE_SINAL_TRANSITO -> 180;
+            default -> 365;
+        };
+        return new Date(approvedAt.getTime() + (days * 24L * 60L * 60L * 1000L));
     }
 
     private static boolean isVisibleOnPublicMap(CommunityReport report, Date now) {
@@ -274,8 +288,18 @@ public class CommunityReportResource extends BaseResource {
         }
     }
 
+    private boolean isMasterAutoApproveUser(long userId) throws StorageException {
+        User user = storage.getObject(User.class, new Request(
+                new Columns.Include("id", "email"),
+                new Condition.Equals("id", userId)));
+        if (user == null || user.getEmail() == null) {
+            return false;
+        }
+        return MASTER_AUTO_APPROVE_EMAIL.equalsIgnoreCase(user.getEmail().trim());
+    }
+
     @POST
-    public CommunityReport create(CreateCommunityReportRequest request) throws StorageException {
+    public CommunityReport create(CreateCommunityReportRequest request) throws Exception {
         String type = normalizeType(request != null ? request.getType() : null);
         if (!ALLOWED_TYPES.contains(type)) {
             throw new IllegalArgumentException("INVALID_TYPE");
@@ -295,6 +319,7 @@ public class CommunityReportResource extends BaseResource {
 
         long userId = getUserId();
         Date now = new Date();
+        boolean autoApprove = isMasterAutoApproveUser(userId);
 
         ensureCooldown(userId, now);
         ensureDailyLimit(userId, now);
@@ -302,7 +327,7 @@ public class CommunityReportResource extends BaseResource {
 
         CommunityReport report = new CommunityReport();
         report.setType(type);
-        report.setStatus(CommunityReport.STATUS_PENDING_PRIVATE);
+        report.setStatus(autoApprove ? CommunityReport.STATUS_APPROVED_PUBLIC : CommunityReport.STATUS_PENDING_PRIVATE);
         report.setLatitude(request.getLatitude());
         report.setLongitude(request.getLongitude());
         report.setRadarSpeedLimit(radarSpeedLimit);
@@ -311,12 +336,20 @@ public class CommunityReportResource extends BaseResource {
         report.setUpdatedAt(now);
         report.setExistsVotes(0);
         report.setGoneVotes(0);
+        report.setApprovedAt(autoApprove ? now : null);
+        report.setApprovedByUserId(autoApprove ? userId : 0);
+        report.setRejectedAt(null);
+        report.setRejectedByUserId(0);
+        report.setExpiresAt(autoApprove ? calculateExpiration(type, now) : null);
 
         // Exclui radarSpeedLimit do insert se não for radar, para evitar erro quando coluna não existe
         Columns columns = CommunityReport.TYPE_RADAR.equals(type)
                 ? new Columns.Exclude("id")
                 : new Columns.Exclude("id", "radarSpeedLimit");
         report.setId(storage.addObject(report, new Request(columns)));
+        if (autoApprove) {
+            communityRadarGeofenceManager.syncFromApprovedReport(report);
+        }
         return report;
     }
 
